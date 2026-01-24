@@ -106,28 +106,42 @@ async def generate_one_month(
 
                 logger.info(f"   AI 분석 결과: {analyzed_flags}")
 
-                # ✅ 변경 전후 비교
+                # AI 결과를 constraints에 반영하기 전에 "병합된 최종값"을 만든다
+                old_flags = {
+                    "has_oven": constraints.facility_flags.has_oven,
+                    "has_fryer": constraints.facility_flags.has_fryer,
+                    "has_griddle": constraints.facility_flags.has_griddle,
+                }
+
+                # analyzed_flags에서 None이 들어오거나 키가 없을 수 있으니 안전하게 정리
+                def pick_bool(key: str, default: bool) -> bool:
+                    v = analyzed_flags.get(key, None)
+                    if v is None:
+                        return default
+                    return bool(v)
+
+                new_flags = {
+                    "has_oven": pick_bool("has_oven", old_flags["has_oven"]),
+                    "has_fryer": pick_bool("has_fryer", old_flags["has_fryer"]),
+                    "has_griddle": pick_bool("has_griddle", old_flags["has_griddle"]),
+                }
+
+                # ✅ 변경 전후 로그 (None 절대 안 뜸)
                 logger.info("   변경 사항:")
                 logger.info(
-                    f"      - has_oven: {constraints.facility_flags.has_oven} → {analyzed_flags.get('has_oven')}"
+                    f"      - has_oven: {old_flags['has_oven']} → {new_flags['has_oven']}"
                 )
                 logger.info(
-                    f"      - has_fryer: {constraints.facility_flags.has_fryer} → {analyzed_flags.get('has_fryer')}"
+                    f"      - has_fryer: {old_flags['has_fryer']} → {new_flags['has_fryer']}"
                 )
                 logger.info(
-                    f"      - has_griddle: {constraints.facility_flags.has_griddle} → {analyzed_flags.get('has_griddle')}"
+                    f"      - has_griddle: {old_flags['has_griddle']} → {new_flags['has_griddle']}"
                 )
 
-                # 분석 결과를 constraints에 반영
-                constraints.facility_flags.has_oven = analyzed_flags.get(
-                    "has_oven", constraints.facility_flags.has_oven
-                )
-                constraints.facility_flags.has_fryer = analyzed_flags.get(
-                    "has_fryer", constraints.facility_flags.has_fryer
-                )
-                constraints.facility_flags.has_griddle = analyzed_flags.get(
-                    "has_griddle", constraints.facility_flags.has_griddle
-                )
+                # ✅ 최종 반영 (None 절대 안 들어감)
+                constraints.facility_flags.has_oven = new_flags["has_oven"]
+                constraints.facility_flags.has_fryer = new_flags["has_fryer"]
+                constraints.facility_flags.has_griddle = new_flags["has_griddle"]
 
                 logger.info("✅ AI 분석 완료 및 적용")
 
