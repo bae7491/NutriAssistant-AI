@@ -59,6 +59,10 @@ class Options(BaseModel):
         default_factory=Constraints, description="식단 생성 제약사항"
     )
 
+    report: Optional[Dict[str, Any]] = Field(
+        default=None, description="리포트 JSON (있으면 AI가 가중치 분석)"
+    )
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -84,6 +88,9 @@ class MonthMenuRequest(BaseModel):
     month: int = Field(..., ge=1, le=12, description="월")
     options: Optional[Options] = Field(
         default=None, description="식단 생성 옵션 및 제약사항 (생략 시 기본값 사용)"
+    )
+    report: Optional[Dict[str, Any]] = Field(
+        default=None, description="월간 리포트 JSON (Spring이 DB에서 조회하여 전달)"
     )
 
     model_config = ConfigDict(

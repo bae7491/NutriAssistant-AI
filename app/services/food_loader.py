@@ -457,3 +457,28 @@ def load_spring_and_build_context() -> None:
     logger.info(f"   - 소요 시간: {load_elapsed:.2f}초")
     logger.info(f"   - 로드 시각: {load_timestamp}")
     logger.info("=" * 80)
+
+
+def get_valid_menu_names() -> List[str]:
+    """
+    DB에서 유효한 메뉴명 목록 조회
+
+    Returns:
+        메뉴명 리스트
+    """
+    ctx = get_context()
+
+    # 모든 역할의 메뉴명을 합침
+    valid_names = []
+    for role in ["밥", "국", "주찬", "부찬", "김치"]:
+        if role in ctx.pool_display_names:
+            valid_names.extend(ctx.pool_display_names[role].tolist())
+
+    # 디저트도 추가
+    if ctx.dessert_pool:
+        valid_names.extend(ctx.dessert_pool)
+
+    # 중복 제거
+    valid_names = list(set(valid_names))
+
+    return valid_names

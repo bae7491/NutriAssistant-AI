@@ -19,7 +19,7 @@ class CostGenerator:
         else:
             self.client = OpenAI(api_key=api_key)
 
-        self.model = "gpt-4o-mini"
+        self.model = "gpt-5-mini"
         self.base_year = 2023
 
         # 물가 상승률 (연도별)

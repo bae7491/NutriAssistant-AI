@@ -42,27 +42,28 @@ def get_ai_analyzer():
 # ==============================================================================
 @router.post("/month/generate", response_model=GenerateMonthResponse)
 async def generate_monthly_menu(request: MonthMenuRequest):
-    year = request.year
-    month = request.month
-    options = request.options
-
     """월간 식단 생성"""
     try:
         logger.info("=" * 60)
-        logger.info("📥 요청 수신")
-        logger.info("=" * 60)
-        logger.info(f"   연도/월: {request.year}/{request.month}")
-
-        # ✅ 요청 전체 로깅
-        if request.options:
-            logger.info(f"   GA 세대: {request.options.numGenerations}")
-            logger.info(f"   제약사항: {request.options.constraints.model_dump()}")
-
+        logger.info(f"📅 식단 생성 요청: {request.year}년 {request.month}월")
         logger.info("=" * 60)
 
+        # ✅ 리포트 유무 확인
+        if request.report:
+            logger.info("   리포트 포함 (AI 가중치 분석 예정)")
+        else:
+            logger.info("   리포트 없음 (기본 가중치 사용)")
+
+        # ✅ 리포트를 generator에 전달
         meals, meta = await generate_one_month(
-            request.year, request.month, request.options
+            request.year,
+            request.month,
+            request.options or Options(),
+            request.report,  # ← 리포트 전달
         )
+
+        logger.info(f"✅ 식단 생성 완료: {len(meals)}개")
+        logger.info("=" * 60)
 
         return GenerateMonthResponse(
             year=request.year,

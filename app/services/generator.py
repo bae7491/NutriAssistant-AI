@@ -19,6 +19,8 @@ from app.services.food_loader import get_context
 from app.utils.holidays import get_holidays
 from app.services.cost_loader import get_menu_cost, get_cost_db
 from app.services.ai_analyzer import AIAnalyzer
+from app.services.report_analyzer import ReportAnalyzer
+from app.services.food_loader import get_valid_menu_names
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +56,22 @@ def _load_json_dict(path: str, outer_key: Optional[str] = None) -> Dict[str, Any
 
 
 async def generate_one_month(
-    year: int, month: int, opt: Options
+    year: int, month: int, opt: Options, report_data: Optional[Dict] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    월간 식단 생성 (동적 제약사항 적용)
+    월간 식단 생성
 
     Args:
         year: 연도
         month: 월
-        opt: 옵션 (제약사항 포함)
+        opt: 옵션
+        report_data: 리포트 JSON (Spring이 DB에서 조회하여 전달)
 
     Returns:
         (식단 리스트, 메타데이터)
     """
     ctx = get_context()
+    constraints = opt.constraints
 
     # ========================================
     # 1. 제약사항 처리
@@ -175,13 +179,39 @@ async def generate_one_month(
     logger.info("=" * 60)
 
     # ========================================
-    # 2. 가중치 DB 로드
+    # 2. 가중치 처리 (리포트 분석)
     # ========================================
-    weights: Dict[str, float] = {
-        k: float(v) for k, v in _load_json_dict(WEIGHT_DB_PATH, "weights").items()
-    }
+    weights: Dict[str, float] = {}
 
-    logger.info(f"✅ 가중치 DB 로드 완료: {len(weights)}개 메뉴")
+    if report_data:
+        logger.info("=" * 60)
+        logger.info("📊 리포트 기반 가중치 분석 시작")
+        logger.info("=" * 60)
+
+        try:
+            # 유효 메뉴명 조회
+            valid_menu_names = get_valid_menu_names()
+            logger.info(f"   유효 메뉴: {len(valid_menu_names)}개")
+
+            # AI 분석
+            analyzer = ReportAnalyzer()
+            weights = await analyzer.analyze_report_to_weights(
+                report_data=report_data, valid_menu_names=valid_menu_names
+            )
+
+            if weights:
+                logger.info(f"✅ 가중치 생성 완료: {len(weights)}개 메뉴")
+            else:
+                logger.warning("⚠️ 가중치 생성 실패, 기본값 사용")
+
+        except Exception as e:
+            logger.error(f"❌ 리포트 분석 실패: {e}", exc_info=True)
+            logger.warning("   가중치 없이 진행")
+            weights = {}
+    else:
+        logger.info("ℹ️ 리포트 없음. 가중치 미사용")
+
+    logger.info("=" * 60)
 
     # ========================================
     # 3. 단가 DB 로드

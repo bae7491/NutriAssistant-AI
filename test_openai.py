@@ -11,7 +11,7 @@ try:
     client = OpenAI(api_key=api_key)
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini", messages=[{"role": "user", "content": "Hello!"}]
+        model="gpt-5-mini", messages=[{"role": "user", "content": "Hello!"}]
     )
 
     print("✅ API 키 정상 작동")
