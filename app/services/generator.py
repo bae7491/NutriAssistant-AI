@@ -1,5 +1,5 @@
 from __future__ import annotations
-import calendar, json, os, random, time
+import calendar, json, os, random, time, logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,9 +18,13 @@ from app.models.schemas import Options
 from app.services.food_loader import get_context
 from app.utils.holidays import get_holidays
 from app.services.cost_loader import get_menu_cost, get_cost_db
+from app.services.ai_analyzer import AIAnalyzer
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_allergy(alg_val: str) -> Optional[str]:
+    """알레르기 정보 정규화"""
     alg_val = str(alg_val).strip()
     if not alg_val or alg_val.lower() == "nan" or alg_val == "0":
         return None
@@ -35,6 +39,7 @@ def _normalize_allergy(alg_val: str) -> Optional[str]:
 
 
 def _load_json_dict(path: str, outer_key: Optional[str] = None) -> Dict[str, Any]:
+    """JSON 파일 로드"""
     if not path or not os.path.exists(path):
         return {}
     try:
@@ -48,20 +53,147 @@ def _load_json_dict(path: str, outer_key: Optional[str] = None) -> Dict[str, Any
         return {}
 
 
-def generate_one_month(
+async def generate_one_month(
     year: int, month: int, opt: Options
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    월간 식단 생성 (동적 제약사항 적용)
+
+    Args:
+        year: 연도
+        month: 월
+        opt: 옵션 (제약사항 포함)
+
+    Returns:
+        (식단 리스트, 메타데이터)
+    """
     ctx = get_context()
 
+    # ========================================
+    # 1. 제약사항 처리
+    # ========================================
+    constraints = opt.constraints
+
+    # ✅ 원본 제약사항 로깅
+    logger.info("=" * 60)
+    logger.info("📥 받은 제약사항 (원본)")
+    logger.info("=" * 60)
+    logger.info(f"   target_price: {constraints.target_price}")
+    logger.info(f"   cost_tolerance: {constraints.cost_tolerance}")
+    logger.info(f"   max_price_limit: {constraints.max_price_limit}")
+    logger.info(f"   cook_staff: {constraints.cook_staff}")
+    logger.info(f"   facility_text: {constraints.facility_text}")
+    logger.info(f"   facility_flags (원본):")
+    logger.info(f"      - has_oven: {constraints.facility_flags.has_oven}")
+    logger.info(f"      - has_fryer: {constraints.facility_flags.has_fryer}")
+    logger.info(f"      - has_griddle: {constraints.facility_flags.has_griddle}")
+    logger.info("=" * 60)
+
+    # 시설 현황 텍스트가 있으면 AI 분석
+    if constraints.facility_text:
+        text = constraints.facility_text.strip().lower()
+
+        # 의미 없는 값 필터링
+        if text and text not in ["string", "null", "none", "undefined", ""]:
+            logger.info("🤖 시설 현황 AI 분석 중...")
+            logger.info(f"   입력 텍스트: '{constraints.facility_text}'")
+
+            try:
+                analyzer = AIAnalyzer()
+                analyzed_flags = await analyzer.analyze_facility_condition(
+                    constraints.facility_text
+                )
+
+                logger.info(f"   AI 분석 결과: {analyzed_flags}")
+
+                # ✅ 변경 전후 비교
+                logger.info("   변경 사항:")
+                logger.info(
+                    f"      - has_oven: {constraints.facility_flags.has_oven} → {analyzed_flags.get('has_oven')}"
+                )
+                logger.info(
+                    f"      - has_fryer: {constraints.facility_flags.has_fryer} → {analyzed_flags.get('has_fryer')}"
+                )
+                logger.info(
+                    f"      - has_griddle: {constraints.facility_flags.has_griddle} → {analyzed_flags.get('has_griddle')}"
+                )
+
+                # 분석 결과를 constraints에 반영
+                constraints.facility_flags.has_oven = analyzed_flags.get(
+                    "has_oven", constraints.facility_flags.has_oven
+                )
+                constraints.facility_flags.has_fryer = analyzed_flags.get(
+                    "has_fryer", constraints.facility_flags.has_fryer
+                )
+                constraints.facility_flags.has_griddle = analyzed_flags.get(
+                    "has_griddle", constraints.facility_flags.has_griddle
+                )
+
+                logger.info("✅ AI 분석 완료 및 적용")
+
+            except Exception as e:
+                logger.error(f"❌ AI 분석 실패: {e}", exc_info=True)
+                logger.warning("   기본값(facility_flags 유지)으로 설정")
+        else:
+            logger.info(f"⚠️ facility_text가 의미 없는 값입니다: '{text}'")
+            logger.info("   facility_flags 직접 사용")
+    else:
+        logger.info("ℹ️ facility_text 없음. facility_flags 직접 사용")
+
+    # 최종 제약사항 로깅
+    logger.info("=" * 60)
+    logger.info("📋 최종 적용 제약사항")
+    logger.info("=" * 60)
+    logger.info(f"   목표 단가: {constraints.target_price:,}원")
+    logger.info(f"   허용 오차: ±{constraints.cost_tolerance*100:.0f}%")
+    logger.info(f"   최대 상한: {constraints.max_price_limit:,}원")
+    logger.info(f"   조리 인원: {constraints.cook_staff}명")
+    logger.info(f"   시설 현황:")
+    logger.info(
+        f"      - 오븐: {'✅ 사용 가능' if constraints.facility_flags.has_oven else '❌ 사용 불가'}"
+    )
+    logger.info(
+        f"      - 튀김기: {'✅ 사용 가능' if constraints.facility_flags.has_fryer else '❌ 사용 불가'}"
+    )
+    logger.info(
+        f"      - 철판: {'✅ 사용 가능' if constraints.facility_flags.has_griddle else '❌ 사용 불가'}"
+    )
+    logger.info("=" * 60)
+
+    # ========================================
+    # 2. 가중치 DB 로드
+    # ========================================
     weights: Dict[str, float] = {
         k: float(v) for k, v in _load_json_dict(WEIGHT_DB_PATH, "weights").items()
     }
 
-    # ✅ 수정: Spring에서 단가 DB 로드 (DB 없으면 AI 자동 생성)
-    print("💰 단가 DB 로딩 중...")
-    cost_db = get_cost_db()
-    print(f"✅ 단가 DB 로드 완료: {len(cost_db)}개 메뉴")
+    logger.info(f"✅ 가중치 DB 로드 완료: {len(weights)}개 메뉴")
 
+    # ========================================
+    # 3. 단가 DB 로드
+    # ========================================
+    logger.info("=" * 60)
+    logger.info("💰 단가 DB 로딩 중...")
+    logger.info("=" * 60)
+
+    try:
+        cost_db = get_cost_db()
+
+        if cost_db and len(cost_db) > 0:
+            logger.info(f"✅ 단가 DB 로드 완료: {len(cost_db)}개 메뉴")
+        else:
+            logger.warning("⚠️ 단가 DB가 비어있습니다. 기본값 1000원 사용")
+
+    except Exception as e:
+        logger.error(f"❌ 단가 DB 로드 실패: {e}")
+        logger.warning("⚠️ 기본값 1000원으로 식단 생성을 계속합니다")
+        cost_db = {}
+
+    logger.info("=" * 60)
+
+    # ========================================
+    # 4. 초기화
+    # ========================================
     global_day_count = 0
     global_menu_tracker: Dict[str, Tuple[int, int, int]] = {}
     current_month_counts: Dict[str, int] = {}
@@ -69,7 +201,7 @@ def generate_one_month(
     holidays = get_holidays(year)
     last_day = calendar.monthrange(year, month)[1]
 
-    # 디저트 주 2회(주중+공휴일제외 기준)
+    # 디저트 주 2회 랜덤 배정
     weekdays_by_week: Dict[int, List[int]] = {}
     for d in range(1, last_day + 1):
         dt = datetime(year, month, d)
@@ -95,11 +227,19 @@ def generate_one_month(
         stop_criteria=None,
     )
 
+    logger.info(f"🧬 GA 파라미터 설정 완료")
+    logger.info(f"   세대 수: {opt.numGenerations}")
+    logger.info(f"   인구 크기: {opt.solPerPop}")
+
     current_meal_type = "중식"
     today_lunch_menus: List[str] = []
 
+    # ========================================
+    # 5. Fitness 함수
+    # ========================================
     def fitness_func(ga_instance, solution, solution_idx):
         nonlocal global_day_count, current_meal_type, today_lunch_menus
+
         indices = solution.astype(int)
         display_names = [
             str(ctx.pool_display_names[role][idx])
@@ -116,6 +256,7 @@ def generate_one_month(
         score = 1_000_000.0
         penalty = 0.0
 
+        # 영양소 평가
         if (STD_KCAL * 0.9) <= t_kcal <= (STD_KCAL * 1.1):
             score += 200_000
         else:
@@ -124,6 +265,7 @@ def generate_one_month(
         if t_prot < STD_PROT:
             penalty += (STD_PROT - t_prot) * 20_000
 
+        # 중복 방지
         if display_names[2] == display_names[3]:
             penalty += 2_000_000
         if cats[2] == cats[3]:
@@ -134,27 +276,37 @@ def generate_one_month(
             if curr_set & set(today_lunch_menus):
                 penalty += 2_000_000
 
-        # ✅ 수정: get_menu_cost 사용
+        # 제약사항: 단가
         current_cost = sum(get_menu_cost(name) for name in display_names)
 
-        if current_cost > opt.maxPriceLimit:
-            penalty += (current_cost - opt.maxPriceLimit) * 5000
-        cost_diff = abs(current_cost - opt.targetPrice)
-        if cost_diff > opt.targetPrice * opt.costTolerance:
+        if current_cost > constraints.max_price_limit:
+            penalty += (current_cost - constraints.max_price_limit) * 5000
+
+        cost_diff = abs(current_cost - constraints.target_price)
+        if cost_diff > constraints.target_price * constraints.cost_tolerance:
             penalty += (cost_diff / 10.0) * 1000
 
-        flags = opt.facilityFlags.model_dump()
+        # 제약사항: 시설
+        flags = constraints.facility_flags.model_dump()
         for name in display_names:
             n = str(name)
-            if (not flags.get("has_oven", True)) and any(
-                k in n for k in ["오븐", "베이크", "그라탕"]
-            ):
-                penalty += 200_000
-            if (not flags.get("has_fryer", True)) and any(
-                k in n for k in ["튀김", "돈까스", "탕수육", "치킨"]
-            ):
-                penalty += 200_000
 
+            if (not flags.get("has_oven", True)) and any(
+                k in n for k in ["오븐", "베이크", "그라탕", "라자냐"]
+            ):
+                penalty += 500_000
+
+            if (not flags.get("has_fryer", True)) and any(
+                k in n for k in ["튀김", "돈까스", "탕수육", "치킨", "강정"]
+            ):
+                penalty += 500_000
+
+            if (not flags.get("has_griddle", True)) and any(
+                k in n for k in ["전", "부침", "지짐", "팬케이크", "빈대떡"]
+            ):
+                penalty += 500_000
+
+        # 가중치 및 빈도 제한
         for i, name in enumerate(display_names):
             nm = name.strip()
             score += float(weights.get(nm, 0.0)) * 100_000
@@ -162,6 +314,7 @@ def generate_one_month(
             is_rice = i == 0 and ("쌀밥" in nm or "흰밥" in nm)
             is_kimchi = i == 5 and ("배추김치" in nm)
             cnt = current_month_counts.get(nm, 0)
+
             if is_rice or is_kimchi:
                 if cnt >= 13:
                     penalty += 2_000_000
@@ -180,7 +333,12 @@ def generate_one_month(
 
         return max(0.1, score - penalty)
 
+    # ========================================
+    # 6. 식단 생성 루프
+    # ========================================
     rows: List[Dict[str, Any]] = []
+
+    logger.info(f"🔄 {year}년 {month}월 식단 생성 시작...")
 
     for d in range(1, last_day + 1):
         dt = datetime(year, month, d)
@@ -234,9 +392,7 @@ def generate_one_month(
             )
             if is_dessert_day and ctx.dessert_pool:
                 dessert = random.choice(ctx.dessert_pool)
-                raw_names.append(dessert)
 
-            # calculate_meal_cost 함수 사용
             cost = calculate_meal_cost(raw_names)
 
             iso_date = datetime(year, month, d).strftime("%Y-%m-%d")
@@ -268,7 +424,7 @@ def generate_one_month(
                     raw_names[4],
                 ]
 
-            # tracker 업데이트(쿨타임 4~9)
+            # tracker 업데이트
             for nm in raw_names:
                 nm_clean = nm.strip()
                 current_month_counts[nm_clean] = (
@@ -283,19 +439,32 @@ def generate_one_month(
                     random.randint(4, 9),
                 )
 
+    logger.info(f"✅ 식단 생성 완료: {len(rows)}개 식단")
+
+    # ========================================
+    # 7. 메타데이터 생성
+    # ========================================
     meta = {
         "gaParams": ga_params,
         "dessertFrequencyPerWeek": DESSERT_FREQUENCY_PER_WEEK,
+        "appliedConstraints": {
+            "target_price": constraints.target_price,
+            "cost_tolerance": constraints.cost_tolerance,
+            "max_price_limit": constraints.max_price_limit,
+            "cook_staff": constraints.cook_staff,
+            "facility_flags": constraints.facility_flags.model_dump(),
+        },
     }
+
     return rows, meta
 
 
 def calculate_meal_cost(raw_menus: list) -> int:
     """
-    식단 비용 계산 (실제 단가 DB 사용)
+    식단 비용 계산
 
     Args:
-        raw_menus: 메뉴명 리스트 (예: ["쌀밥", "김치찌개", ...])
+        raw_menus: 메뉴명 리스트
 
     Returns:
         총 비용(원)
@@ -305,3 +474,176 @@ def calculate_meal_cost(raw_menus: list) -> int:
         cost = get_menu_cost(menu_name)
         total_cost += cost
     return total_cost
+
+
+# ==============================================================================
+# ★★★ [수정] Java의 'AI 자동 대체' 기능이 호출하는 함수
+# 8개의 후보 식단을 생성하고 그 중 최적의 식단을 선택하여 반환합니다.
+# ==============================================================================
+def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
+    """
+    단일 식단(1끼) 생성 함수
+    8개의 후보를 생성한 뒤 영양 균형이 가장 잘 잡힌 식단을 선택합니다.
+    """
+    ctx = get_context()
+
+    # 1끼 생성을 위한 가벼운 GA 파라미터 (속도 중요)
+    ga_params = dict(
+        num_generations=50,
+        sol_per_pop=20,
+        num_parents_mating=10,
+        keep_parents=5,
+        mutation_percent_genes=20,
+        stop_criteria=None,
+    )
+
+    def single_fitness(ga_instance, solution, solution_idx):
+        indices = solution.astype(int)
+        display_names = [
+            str(ctx.pool_display_names[role][idx])
+            for role, idx in zip(ROLE_ORDER, indices)
+        ]
+        cats = [str(ctx.pool_cats[role][idx]) for role, idx in zip(ROLE_ORDER, indices)]
+        nutr_values = np.array(
+            [ctx.pool_matrices[role][idx] for role, idx in zip(ROLE_ORDER, indices)]
+        )
+        totals = nutr_values.sum(axis=0)
+        t_kcal, t_prot = float(totals[0]), float(totals[2])
+
+        score = 100_000.0
+        penalty = 0.0
+
+        # 영양소 제약 (월간보다 조금 더 유연하게)
+        if (STD_KCAL * 0.8) <= t_kcal <= (STD_KCAL * 1.2):
+            score += 50_000
+        else:
+            penalty += abs(t_kcal - STD_KCAL) * 100
+
+        if t_prot < STD_PROT:
+            penalty += (STD_PROT - t_prot) * 1000
+
+        # 중복 제약
+        if display_names[2] == display_names[3]:
+            penalty += 500_000
+        if cats[2] == cats[3]:
+            penalty += 200_000
+
+        return max(0.1, score - penalty)
+
+    # ==========================================================================
+    # ★★★ [추가] 8개 후보 식단 생성 로직
+    # ==========================================================================
+    candidates = []
+
+    print("\n🔄 [Python] 8개 후보 식단 생성 중...")
+
+    for candidate_idx in range(8):
+        # 각 후보마다 다른 시드를 사용하여 다양한 식단 생성
+        seed = int(time.time()) + candidate_idx * 1000
+
+        ga = pygad.GA(
+            random_seed=seed,
+            fitness_func=single_fitness,
+            num_genes=len(ROLE_ORDER),
+            gene_space=ctx.gene_space,
+            gene_type=int,
+            **ga_params,
+        )
+        ga.run()
+
+        sol, fit, _ = ga.best_solution()
+        idxs = sol.astype(int)
+
+        # ======================================================================
+        # [추가] 영양 정보 계산
+        # ======================================================================
+        nutr_values = np.array(
+            [ctx.pool_matrices[role][idx] for role, idx in zip(ROLE_ORDER, idxs)]
+        )
+        totals = nutr_values.sum(axis=0)
+        kcal = float(totals[0])
+        carb = float(totals[1])
+        prot = float(totals[2])
+        fat = float(totals[3])
+        # ======================================================================
+
+        # 메뉴 구성 (알레르기 정보 포함)
+        raw_names = []
+        display_names = []
+
+        for r, i in zip(ROLE_ORDER, idxs):
+            original = str(ctx.pool_display_names[r][i])
+            alg_norm = _normalize_allergy(str(ctx.pool_allergies[r][i]))
+
+            raw_names.append(original)
+
+            if alg_norm:
+                display_names.append(f"{original} ({alg_norm})")
+            else:
+                display_names.append(original)
+
+        # 디저트 처리
+        dessert = None
+        if ctx.dessert_pool and random.random() > 0.5:
+            dessert = random.choice(ctx.dessert_pool)
+            raw_names.append(dessert)
+
+        # 비용 계산
+        total_cost = calculate_meal_cost(raw_names)
+
+        # ======================================================================
+        # [추가] 후보 정보 저장
+        # ======================================================================
+        candidate_info = {
+            "index": candidate_idx + 1,
+            "menus": display_names,
+            "rawMenus": raw_names,
+            "dessert": dessert,
+            "kcal": int(round(kcal)),
+            "carb": int(round(carb)),
+            "prot": int(round(prot)),
+            "fat": int(round(fat)),
+            "cost": total_cost,
+            "fitness": fit,  # 적합도 점수 (높을수록 좋음)
+        }
+
+        candidates.append(candidate_info)
+
+        print(
+            f"  후보 {candidate_idx + 1}/8 생성 완료 (적합도: {fit:.0f}, 비용: {total_cost}원, kcal: {int(round(kcal))})"
+        )
+    # ==========================================================================
+
+    # ==========================================================================
+    # ★★★ [추가] 8개 후보 중 최적의 식단 선택
+    # 적합도(fitness)가 가장 높은 후보를 선택합니다.
+    # ==========================================================================
+    best_candidate = max(candidates, key=lambda x: x["fitness"])
+
+    print(
+        f"\n✅ [Python] 최적 식단 선택: 후보 {best_candidate['index']} (적합도: {best_candidate['fitness']:.0f})"
+    )
+    print(
+        f"   📊 영양: kcal={best_candidate['kcal']}, carb={best_candidate['carb']}, prot={best_candidate['prot']}, fat={best_candidate['fat']}"
+    )
+    print(f"   💰 비용: {best_candidate['cost']}원")
+    print(f"   🍽️ 메뉴: {best_candidate['menus']}")
+    # ==========================================================================
+
+    # ==========================================================================
+    # ★★★ [수정] 반환 값에 영양 정보 + candidates 추가
+    # Java에서 8개 후보를 확인할 수 있도록 candidates 필드 포함
+    # ==========================================================================
+    return {
+        "menus": best_candidate["menus"],  # 최적 식단의 메뉴 (알레르기 정보 포함)
+        "rawMenus": best_candidate["rawMenus"],  # 최적 식단의 순수 메뉴명
+        "dessert": best_candidate["dessert"],  # 최적 식단의 디저트
+        "kcal": best_candidate["kcal"],  # ★ 추가: 총 칼로리
+        "carb": best_candidate["carb"],  # ★ 추가: 총 탄수화물
+        "prot": best_candidate["prot"],  # ★ 추가: 총 단백질
+        "fat": best_candidate["fat"],  # ★ 추가: 총 지방
+        "cost": best_candidate["cost"],  # 총 비용
+        "candidates": candidates,  # ★ 추가: 8개 후보 전체 정보 (Java 검증용)
+        "reason": "AI가 8개의 후보 중 영양 균형과 선호도를 고려하여 최적의 메뉴를 선택했습니다.",
+    }
+    # ==========================================================================

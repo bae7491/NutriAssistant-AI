@@ -1,8 +1,11 @@
 from __future__ import annotations
+from fastapi import APIRouter, Header, HTTPException, Query, Body
+from typing import Optional, Dict, Any
 from datetime import datetime
-from typing import Optional
+import logging
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from app.models.schemas import MonthMenuRequest, GenerateMonthResponse
+from app.services.generator import generate_one_month
 
 from app.core.config import INTERNAL_TOKEN
 from app.models.schemas import (
@@ -15,11 +18,16 @@ from app.models.schemas import (
     ReportAnalysisResponse,
     MenuWeight,
 )
-from app.services.generator import generate_one_month
+
+# [확인] 여기가 '주방장'을 불러오는 부분입니다.
+# generate_one_month: 월간 식단 생성 함수 (generator.py)
+# generate_single_candidate: 1끼 생성 함수 (generator.py) -> Java에서 AI 대체 요청 시 사용
+from app.services.generator import generate_one_month, generate_single_candidate
 from app.services.food_loader import get_context
 from app.services.ai_analyzer import AIAnalyzer
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # AIAnalyzer를 함수로 생성하여 매 요청마다 새로운 인스턴스 사용
@@ -27,114 +35,106 @@ def get_ai_analyzer():
     return AIAnalyzer()
 
 
-@router.post("/v1/menus/month:generate", response_model=GenerateMonthResponse)
-def generate_month(
-    req: Optional[GenerateMonthRequest] = None,
-    year: Optional[int] = Query(default=None, ge=2000, le=2100),
-    month: Optional[int] = Query(default=None, ge=1, le=12),
-    x_internal_token: str = Header(default=""),
-):
+# ==============================================================================
+# 1. 월간 식단 생성 API
+# 요청: POST /v1/menus/month:generate
+# 역할: Java가 "3월 식단 짜줘"라고 하면 generator.py의 generate_one_month를 호출
+# ==============================================================================
+@router.post("/month/generate", response_model=GenerateMonthResponse)
+async def generate_monthly_menu(request: MonthMenuRequest):
+    year = request.year
+    month = request.month
+    options = request.options
+
     """월간 식단 생성"""
+    try:
+        logger.info("=" * 60)
+        logger.info("📥 요청 수신")
+        logger.info("=" * 60)
+        logger.info(f"   연도/월: {request.year}/{request.month}")
+
+        # ✅ 요청 전체 로깅
+        if request.options:
+            logger.info(f"   GA 세대: {request.options.numGenerations}")
+            logger.info(f"   제약사항: {request.options.constraints.model_dump()}")
+
+        logger.info("=" * 60)
+
+        meals, meta = await generate_one_month(
+            request.year, request.month, request.options
+        )
+
+        return GenerateMonthResponse(
+            year=request.year,
+            month=request.month,
+            generatedAt=datetime.now().isoformat(),
+            meals=meals,
+            meta=meta,
+        )
+
+    except Exception as e:
+        logger.error(f"❌ 식단 생성 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==============================================================================
+# 2. [신규 기능] 단일 식단(1끼) AI 생성 API
+# 요청: POST /v1/menus/single:generate
+# 역할: Java에서 "이 날 점심 메뉴만 AI로 바꿔줘"라고 할 때 호출됨
+# ==============================================================================
+@router.post("/v1/menus/single:generate")
+def generate_single_meal(
+    req: Dict[str, Any] = Body(...),
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+):
+    """
+    단일 식단(1끼) AI 생성
+    Java 요청 Body 예시: { "date": "2026-03-03", "meal_type": "중식" }
+    """
     if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
         raise HTTPException(status_code=401, detail="unauthorized")
 
-    try:
-        _ = get_context()
-    except Exception:
-        raise HTTPException(status_code=503, detail="dataset not ready (check /health)")
+    meal_type = req.get("meal_type", "중식")
 
-    if req is None:
-        if year is None or month is None:
-            raise HTTPException(
-                status_code=422, detail="year/month required (body or query)"
-            )
-        req = GenerateMonthRequest(year=year, month=month, options=Options())
-
-    meals, meta = generate_one_month(req.year, req.month, req.options)
-    return GenerateMonthResponse(
-        year=req.year,
-        month=req.month,
-        generatedAt=datetime.now().isoformat(),
-        meals=meals,
-        meta=meta,
-    )
+    # generator.py의 generate_single_candidate 함수를 호출하여 결과 반환
+    result = generate_single_candidate(meal_type)
+    return result
 
 
+# ==============================================================================
+# 3. 시설 현황 분석 API
+# ==============================================================================
 @router.post("/v1/facility/analyze", response_model=FacilityAnalysisResponse)
-async def analyze_facility(request: FacilityAnalysisRequest):
-    """
-        시설 현황 텍스트를 AI로 분석하여 시설 가능 여부 반환
+async def analyze_facility(
+    request: FacilityAnalysisRequest,
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+):
+    """시설 현황 텍스트 분석"""
+    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+        raise HTTPException(status_code=401, detail="unauthorized")
 
-        Example:
-    ```json
-        POST /v1/facility/analyze
-        {
-            "facility_text": "오븐 고장, 튀김기 없음, 회전식 조리기 2대"
-        }
-    ```
-
-        Response:
-    ```json
-        {
-            "has_oven": false,
-            "has_fryer": false,
-            "has_griddle": true
-        }
-    ```
-    """
     try:
         analyzer = get_ai_analyzer()
         result = await analyzer.analyze_facility_condition(request.facility_text)
         return FacilityAnalysisResponse(**result)
     except ValueError as e:
-        # API 키 없음 등의 설정 오류
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"시설 분석 실패: {str(e)}")
 
 
+# ==============================================================================
+# 4. 급식 리포트 분석 API
+# ==============================================================================
 @router.post("/v1/reports/analyze", response_model=ReportAnalysisResponse)
-async def analyze_report(request: ReportAnalysisRequest):
-    """
-        급식 리포트를 AI로 분석하여 메뉴별 가중치 생성
+async def analyze_report(
+    request: ReportAnalysisRequest,
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+):
+    """급식 리포트 분석"""
+    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+        raise HTTPException(status_code=401, detail="unauthorized")
 
-        Example:
-    ```json
-        POST /v1/reports/analyze
-        {
-            "report_data": {
-                "best_menus": ["김치찌개", "돈까스"],
-                "worst_menus": ["미역국"],
-                "comments": ["맛있었어요", "별로였어요"]
-            },
-            "valid_menu_names": ["김치찌개", "돈까스", "미역국", "된장찌개"]
-        }
-    ```
-
-        Response:
-    ```json
-        {
-            "weights": [
-                {
-                    "menu_name": "김치찌개",
-                    "weight": 0.8,
-                    "reason": "학생들이 좋아하는 메뉴"
-                },
-                {
-                    "menu_name": "돈까스",
-                    "weight": 0.7,
-                    "reason": "만족도 높음"
-                },
-                {
-                    "menu_name": "미역국",
-                    "weight": -0.6,
-                    "reason": "불만 의견 많음"
-                }
-            ],
-            "total_analyzed": 3
-        }
-    ```
-    """
     try:
         analyzer = get_ai_analyzer()
         valid_names = set(request.valid_menu_names)
@@ -150,7 +150,6 @@ async def analyze_report(request: ReportAnalysisRequest):
             weights=weights_list, total_analyzed=len(weights_list)
         )
     except ValueError as e:
-        # API 키 없음 등의 설정 오류
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"리포트 분석 실패: {str(e)}")

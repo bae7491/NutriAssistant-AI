@@ -2,16 +2,14 @@ from openai import OpenAI
 import os
 import json
 from typing import Dict, Optional
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-# .env 파일 로드
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True), override=True)
 
 
 class AIAnalyzer:
     def __init__(self):
-        # 환경변수에서 직접 읽기
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = (os.getenv("OPENAI_API_KEY") or "").strip().strip('"').strip("'")
 
         if not api_key:
             print("⚠️ OPENAI_API_KEY가 설정되지 않았습니다. AI 기능이 비활성화됩니다.")
@@ -44,9 +42,18 @@ class AIAnalyzer:
                     {
                         "role": "system",
                         "content": (
-                            "당신은 조리 시설 분석 전문가입니다. "
-                            "주방 기기 목록을 분석하여 JSON으로 반환하세요. "
-                            '출력 예시: {"has_oven": false, "has_fryer": true, "has_griddle": true}'
+                            "너는 조리 시설 분석기다.\n"
+                            "입력은 '변경/이슈' 텍스트일 수 있다(예: '오븐 고장').\n"
+                            "따라서 입력에 언급된 장비만 판단하고, 언급되지 않은 장비는 JSON에 포함하지 마라.\n"
+                            "반드시 아래 키 중 필요한 것만 포함해서 JSON으로만 출력해라:\n"
+                            "- has_oven\n"
+                            "- has_fryer\n"
+                            "- has_griddle\n"
+                            "규칙:\n"
+                            "- '오븐'이 언급되고 '고장/불가/사용불가/못씀'이면 has_oven=false\n"
+                            "- '튀김기/튀김'이 언급되고 '고장/불가/사용불가/못씀'이면 has_fryer=false\n"
+                            "- '철판/부침/전/그리들'이 언급되고 '고장/불가/사용불가/못씀'이면 has_griddle=false\n"
+                            "- 언급되었지만 문제 없음이면 true\n"
                         ),
                     },
                     {"role": "user", "content": facility_text},
@@ -73,14 +80,14 @@ class AIAnalyzer:
             json_str = json.dumps(report_data, ensure_ascii=False)
 
             prompt = f"""
-너는 급식 데이터 분석가야. 리포트를 보고 메뉴별 평가 점수(0~100)를 매겨줘.
-칭찬/Best는 80점 이상, 불만/Worst는 40점 미만.
-
-출력 포맷:
-[{{"menu": "메뉴명", "score": 85, "reason": "이유"}}, ...]
-
-[데이터]
-{json_str}
+                너는 급식 데이터 분석가야. 리포트를 보고 메뉴별 평가 점수(0~100)를 매겨줘.
+                칭찬/Best는 80점 이상, 불만/Worst는 40점 미만.
+                
+                출력 포맷:
+                [{{"menu": "메뉴명", "score": 85, "reason": "이유"}}, ...]
+                
+                [데이터]
+                {json_str}
             """.strip()
 
             response = self.client.chat.completions.create(
