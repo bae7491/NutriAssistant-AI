@@ -2,7 +2,7 @@ from __future__ import annotations
 import calendar, json, os, random, time, logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-
+import time, random, re
 import numpy as np
 import pygad
 
@@ -436,8 +436,12 @@ async def generate_one_month(
             )
             if is_dessert_day and ctx.dessert_pool:
                 dessert_name = random.choice(ctx.dessert_pool)
-                dessert_alg = _normalize_allergy(ctx.dessert_allergies.get(dessert_name, ""))
-                dessert = f"{dessert_name} ({dessert_alg})" if dessert_alg else dessert_name
+                dessert_alg = _normalize_allergy(
+                    ctx.dessert_allergies.get(dessert_name, "")
+                )
+                dessert = (
+                    f"{dessert_name} ({dessert_alg})" if dessert_alg else dessert_name
+                )
 
             cost = calculate_meal_cost(raw_names)
 
@@ -522,30 +526,165 @@ def calculate_meal_cost(raw_menus: list) -> int:
     return total_cost
 
 
-# ==============================================================================
-# ★★★ [수정] Java의 'AI 자동 대체' 기능이 호출하는 함수
-# 8개의 후보 식단을 생성하고 그 중 최적의 식단을 선택하여 반환합니다.
-# ==============================================================================
+def _normalize_token_no_allergy(s: str) -> str:
+    """알레르기 괄호 제거 + 공백 제거(유사도/중복 판단용)"""
+    s = str(s or "").strip()
+    s = re.sub(r"\([^)]*\)", "", s)
+    s = re.sub(r"\s+", "", s)
+    return s
+
+
+def _jaccard(a: set, b: set) -> float:
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    uni = len(a | b)
+    return inter / uni if uni else 0.0
+
+
+def make_reason(
+    best: Dict[str, Any],
+    candidates: List[Dict[str, Any]],
+    std_kcal: float,
+    std_prot: float,
+    target_price: Optional[int] = None,
+) -> str:
+    """짧은 한글 1줄 사유: 칼로리/단백질/단가 핵심 요약"""
+
+    others = [c for c in candidates if c.get("index") != best.get("index")]
+    runner = max(others, key=lambda x: float(x.get("fitness", 0.0))) if others else None
+
+    kcal_gap = abs(int(best["kcal"]) - int(round(std_kcal)))
+    prot_short = max(0, int(round(std_prot - float(best["prot"]))))
+
+    parts = []
+
+    # 칼로리
+    parts.append(f"칼로리±{kcal_gap}kcal")
+
+    # 단백질
+    if prot_short == 0:
+        parts.append("단백질 충족")
+    else:
+        parts.append(f"단백질-{prot_short}g")
+
+    # 단가
+    if target_price and target_price > 0:
+        price_gap = abs(int(best["cost"]) - int(target_price))
+        parts.append(f"단가±{price_gap}원")
+
+    # 다른 후보 대비 우수 여부
+    if runner:
+        r_kcal = abs(int(runner["kcal"]) - int(round(std_kcal)))
+        r_prot = max(0, int(round(std_prot - float(runner["prot"]))))
+
+        if kcal_gap < r_kcal or prot_short < r_prot:
+            parts.append("후보 대비 우수")
+
+    return " / ".join(parts)
+
+
 def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
     """
     단일 식단(1끼) 생성 함수
-    8개의 후보를 생성한 뒤 영양 균형이 가장 잘 잡힌 식단을 선택합니다.
+    - 8개의 후보를 생성한 뒤 "점수(영양/비용/중복/다양성)"가 가장 높은 후보를 선택합니다.
+    - 후보별로 점수가 갈리도록(=다양하게 나오도록) fitness를 연속형으로 바꿉니다.
+    - 8개 후보끼리도 다양하게 나오도록, 이미 뽑힌 후보와 너무 유사하면 페널티를 줍니다(다양성 페널티).
     """
     ctx = get_context()
 
-    # 1끼 생성을 위한 가벼운 GA 파라미터 (속도 중요)
+    # -----------------------------
+    # GA 파라미터 (속도/품질 균형)
+    # -----------------------------
     ga_params = dict(
         num_generations=50,
-        sol_per_pop=20,
-        num_parents_mating=10,
-        keep_parents=5,
-        mutation_percent_genes=20,
+        sol_per_pop=30,
+        num_parents_mating=12,
+        keep_parents=6,
+        mutation_percent_genes=25,
         stop_criteria=None,
     )
 
+    # -----------------------------
+    # 튜닝 파라미터
+    # -----------------------------
+    TARGET_RATIO = {"carb": 0.55, "prot": 0.17, "fat": 0.28}
+    RATIO_TOL = {"carb": 0.15, "prot": 0.10, "fat": 0.10}
+
+    TARGET_PRICE = getattr(ctx, "target_price", None)  # 없으면 None
+    PRICE_TOL = 0.20
+
+    DUP_NAME_PENALTY = 1_500_000
+    DUP_CAT_PENALTY = 700_000
+    TOO_SIMILAR_PENALTY = 900_000
+    SIM_THRESHOLD = 0.75
+
+    N_CAND = 8
+
+    # -----------------------------
+    # 유틸(스무스 점수)
+    # -----------------------------
+    def smooth_gauss_score(x: float, target: float, sigma: float) -> float:
+        if sigma <= 0:
+            return 0.0
+        z = (x - target) / sigma
+        return float(np.exp(-0.5 * z * z))
+
+    def smooth_hinge_penalty(x: float, low: float, high: float, k: float) -> float:
+        if low <= x <= high:
+            return 0.0
+        if x < low:
+            return k * (low - x)
+        return k * (x - high)
+
+    def build_signature(raw_names: List[str], cats: List[str]) -> Tuple[set, set]:
+        name_set = {
+            _normalize_token_no_allergy(x)
+            for x in raw_names
+            if _normalize_token_no_allergy(x)
+        }
+        cat_set = {
+            _normalize_token_no_allergy(x)
+            for x in cats
+            if _normalize_token_no_allergy(x)
+        }
+        return name_set, cat_set
+
+    # -----------------------------
+    # 후보 다양성 관리(이미 뽑힌 후보와 유사하면 감점)
+    # -----------------------------
+    picked_name_sigs: List[set] = []
+    picked_cat_sigs: List[set] = []
+
+    def diversity_penalty(name_sig: set, cat_sig: set) -> float:
+        if not picked_name_sigs:
+            return 0.0
+
+        max_sim = 0.0
+        for ns, cs in zip(picked_name_sigs, picked_cat_sigs):
+            sim_n = _jaccard(name_sig, ns)
+            sim_c = _jaccard(cat_sig, cs)
+            sim = 0.7 * sim_n + 0.3 * sim_c
+            if sim > max_sim:
+                max_sim = sim
+
+        if max_sim >= SIM_THRESHOLD:
+            return (
+                TOO_SIMILAR_PENALTY
+                * (max_sim - SIM_THRESHOLD)
+                / (1.0 - SIM_THRESHOLD + 1e-9)
+            )
+        return 0.0
+
+    # -----------------------------
+    # Fitness: 연속형 점수 + 페널티
+    # -----------------------------
     def single_fitness(ga_instance, solution, solution_idx):
         indices = solution.astype(int)
-        display_names = [
+
+        raw_names = [
             str(ctx.pool_display_names[role][idx])
             for role, idx in zip(ROLE_ORDER, indices)
         ]
@@ -554,38 +693,103 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
             [ctx.pool_matrices[role][idx] for role, idx in zip(ROLE_ORDER, indices)]
         )
         totals = nutr_values.sum(axis=0)
-        t_kcal, t_prot = float(totals[0]), float(totals[2])
 
-        score = 100_000.0
+        t_kcal = float(totals[0])
+        t_carb = float(totals[1])
+        t_prot = float(totals[2])
+        t_fat = float(totals[3])
+
+        # 1) 영양 점수(연속형)
+        kcal_score = smooth_gauss_score(
+            t_kcal, STD_KCAL, sigma=max(50.0, STD_KCAL * 0.12)
+        )
+        prot_score = smooth_gauss_score(
+            t_prot, STD_PROT, sigma=max(3.0, STD_PROT * 0.20)
+        )
+        prot_short_pen = smooth_hinge_penalty(
+            t_prot, low=STD_PROT, high=10_000_000, k=600.0
+        )
+
+        macro_sum = max(t_carb + t_prot + t_fat, 1e-9)
+        r_carb = t_carb / macro_sum
+        r_prot = t_prot / macro_sum
+        r_fat = t_fat / macro_sum
+
+        ratio_score = (
+            smooth_gauss_score(r_carb, TARGET_RATIO["carb"], sigma=RATIO_TOL["carb"])
+            * 0.4
+            + smooth_gauss_score(r_prot, TARGET_RATIO["prot"], sigma=RATIO_TOL["prot"])
+            * 0.3
+            + smooth_gauss_score(r_fat, TARGET_RATIO["fat"], sigma=RATIO_TOL["fat"])
+            * 0.3
+        )
+
+        # 2) 비용 점수/페널티
+        total_cost = calculate_meal_cost(raw_names)
+        if TARGET_PRICE is None or TARGET_PRICE <= 0:
+            price_score = 0.5
+            price_pen = 0.0
+        else:
+            price_score = smooth_gauss_score(
+                float(total_cost),
+                float(TARGET_PRICE),
+                sigma=max(200.0, TARGET_PRICE * 0.15),
+            )
+            price_pen = smooth_hinge_penalty(
+                float(total_cost),
+                low=0.0,
+                high=float(TARGET_PRICE) * (1.0 + PRICE_TOL),
+                k=120.0,
+            )
+
+        # 3) 중복 페널티
         penalty = 0.0
 
-        # 영양소 제약 (월간보다 조금 더 유연하게)
-        if (STD_KCAL * 0.8) <= t_kcal <= (STD_KCAL * 1.2):
-            score += 50_000
-        else:
-            penalty += abs(t_kcal - STD_KCAL) * 100
+        # 주찬1/주찬2 중복(ROLE_ORDER[2], ROLE_ORDER[3] 가정)
+        if len(raw_names) >= 4:
+            if _normalize_token_no_allergy(raw_names[2]) == _normalize_token_no_allergy(
+                raw_names[3]
+            ):
+                penalty += DUP_NAME_PENALTY
+            if _normalize_token_no_allergy(cats[2]) == _normalize_token_no_allergy(
+                cats[3]
+            ):
+                penalty += DUP_CAT_PENALTY
 
-        if t_prot < STD_PROT:
-            penalty += (STD_PROT - t_prot) * 1000
+        # 전체 중복
+        uniq = set(map(_normalize_token_no_allergy, raw_names))
+        dup_count = len(raw_names) - len(uniq)
+        if dup_count > 0:
+            penalty += dup_count * 400_000
 
-        # 중복 제약
-        if display_names[2] == display_names[3]:
-            penalty += 500_000
-        if cats[2] == cats[3]:
-            penalty += 200_000
+        # 4) 후보 간 다양성 페널티
+        name_sig, cat_sig = build_signature(raw_names, cats)
+        penalty += diversity_penalty(name_sig, cat_sig)
 
-        return max(0.1, score - penalty)
+        # 최종 점수
+        score = 100_000.0
+        score += 90_000.0 * kcal_score
+        score += 90_000.0 * prot_score
+        score += 70_000.0 * ratio_score
+        score += 40_000.0 * price_score
 
-    # ==========================================================================
-    # ★★★ [추가] 8개 후보 식단 생성 로직
-    # ==========================================================================
-    candidates = []
+        penalty += prot_short_pen
+        penalty += price_pen
 
+        final = score - penalty
+        return max(0.1, float(final))
+
+    # -----------------------------
+    # 후보 생성
+    # -----------------------------
+    candidates: List[Dict[str, Any]] = []
     print("\n🔄 [Python] 8개 후보 식단 생성 중...")
 
-    for candidate_idx in range(8):
-        # 각 후보마다 다른 시드를 사용하여 다양한 식단 생성
-        seed = int(time.time()) + candidate_idx * 1000
+    for candidate_idx in range(N_CAND):
+        # ✅ seed 범위 에러 방지: 0 ~ 2**32-1 로 마스킹
+        seed = (
+            int(time.time() * 1000) + candidate_idx * 10_000 + random.randint(0, 9999)
+        ) & 0xFFFFFFFF
 
         ga = pygad.GA(
             random_seed=seed,
@@ -600,9 +804,7 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
         sol, fit, _ = ga.best_solution()
         idxs = sol.astype(int)
 
-        # ======================================================================
-        # [추가] 영양 정보 계산
-        # ======================================================================
+        # 영양 합산
         nutr_values = np.array(
             [ctx.pool_matrices[role][idx] for role, idx in zip(ROLE_ORDER, idxs)]
         )
@@ -611,38 +813,43 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
         carb = float(totals[1])
         prot = float(totals[2])
         fat = float(totals[3])
-        # ======================================================================
 
-        # 메뉴 구성 (알레르기 정보 포함)
-        raw_names = []
-        display_names = []
+        # 메뉴 구성 (알레르기 포함 display)
+        raw_names: List[str] = []
+        display_names: List[str] = []
+        cats: List[str] = []
 
         for r, i in zip(ROLE_ORDER, idxs):
             original = str(ctx.pool_display_names[r][i])
             alg_norm = _normalize_allergy(str(ctx.pool_allergies[r][i]))
+            cat = str(ctx.pool_cats[r][i])
 
             raw_names.append(original)
+            cats.append(cat)
 
             if alg_norm:
                 display_names.append(f"{original} ({alg_norm})")
             else:
                 display_names.append(original)
 
-        # 디저트 처리 (알레르기 정보 포함)
+        # 디저트(선택)
         dessert = None
         dessert_raw = None
-        if ctx.dessert_pool and random.random() > 0.5:
+        if getattr(ctx, "dessert_pool", None) and random.random() > 0.5:
             dessert_raw = random.choice(ctx.dessert_pool)
             dessert_alg = _normalize_allergy(ctx.dessert_allergies.get(dessert_raw, ""))
             dessert = f"{dessert_raw} ({dessert_alg})" if dessert_alg else dessert_raw
             raw_names.append(dessert_raw)
+            display_names.append(dessert)
 
-        # 비용 계산
+        # 비용
         total_cost = calculate_meal_cost(raw_names)
 
-        # ======================================================================
-        # [추가] 후보 정보 저장
-        # ======================================================================
+        # ✅ 이번 후보 시그니처 저장(다음 후보가 비슷하면 fitness에서 감점)
+        name_sig, cat_sig = build_signature(raw_names, cats)
+        picked_name_sigs.append(name_sig)
+        picked_cat_sigs.append(cat_sig)
+
         candidate_info = {
             "index": candidate_idx + 1,
             "menus": display_names,
@@ -652,22 +859,34 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
             "carb": int(round(carb)),
             "prot": int(round(prot)),
             "fat": int(round(fat)),
-            "cost": total_cost,
-            "fitness": fit,  # 적합도 점수 (높을수록 좋음)
+            "cost": int(total_cost),
+            "fitness": float(fit),
         }
-
         candidates.append(candidate_info)
 
         print(
-            f"  후보 {candidate_idx + 1}/8 생성 완료 (적합도: {fit:.0f}, 비용: {total_cost}원, kcal: {int(round(kcal))})"
+            f"  후보 {candidate_idx + 1}/{N_CAND} 생성 완료 (적합도: {fit:.0f}, 비용: {total_cost}원, kcal: {int(round(kcal))})"
         )
-    # ==========================================================================
 
-    # ==========================================================================
-    # ★★★ [추가] 8개 후보 중 최적의 식단 선택
-    # 적합도(fitness)가 가장 높은 후보를 선택합니다.
-    # ==========================================================================
-    best_candidate = max(candidates, key=lambda x: x["fitness"])
+    # -----------------------------
+    # 최적 후보 선택
+    # -----------------------------
+    best_candidate = max(candidates, key=lambda x: float(x["fitness"]))
+
+    # -----------------------------
+    # reason 생성(후보 비교 기반)
+    # -----------------------------
+    reason = make_reason(
+        best_candidate,
+        candidates,
+        std_kcal=float(STD_KCAL),
+        std_prot=float(STD_PROT),
+        target_price=(
+            int(TARGET_PRICE)
+            if (TARGET_PRICE is not None and TARGET_PRICE > 0)
+            else None
+        ),
+    )
 
     print(
         f"\n✅ [Python] 최적 식단 선택: 후보 {best_candidate['index']} (적합도: {best_candidate['fitness']:.0f})"
@@ -677,22 +896,17 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
     )
     print(f"   💰 비용: {best_candidate['cost']}원")
     print(f"   🍽️ 메뉴: {best_candidate['menus']}")
-    # ==========================================================================
+    print(f"   📝 사유: {reason}")
 
-    # ==========================================================================
-    # ★★★ [수정] 반환 값에 영양 정보 + candidates 추가
-    # Java에서 8개 후보를 확인할 수 있도록 candidates 필드 포함
-    # ==========================================================================
     return {
-        "menus": best_candidate["menus"],  # 최적 식단의 메뉴 (알레르기 정보 포함)
-        "rawMenus": best_candidate["rawMenus"],  # 최적 식단의 순수 메뉴명
-        "dessert": best_candidate["dessert"],  # 최적 식단의 디저트
-        "kcal": best_candidate["kcal"],  # ★ 추가: 총 칼로리
-        "carb": best_candidate["carb"],  # ★ 추가: 총 탄수화물
-        "prot": best_candidate["prot"],  # ★ 추가: 총 단백질
-        "fat": best_candidate["fat"],  # ★ 추가: 총 지방
-        "cost": best_candidate["cost"],  # 총 비용
-        "candidates": candidates,  # ★ 추가: 8개 후보 전체 정보 (Java 검증용)
-        "reason": "AI가 8개의 후보 중 영양 균형과 선호도를 고려하여 최적의 메뉴를 선택했습니다.",
+        "menus": best_candidate["menus"],
+        "rawMenus": best_candidate["rawMenus"],
+        "dessert": best_candidate["dessert"],
+        "kcal": best_candidate["kcal"],
+        "carb": best_candidate["carb"],
+        "prot": best_candidate["prot"],
+        "fat": best_candidate["fat"],
+        "cost": best_candidate["cost"],
+        "candidates": candidates,
+        "reason": reason,
     }
-    # ==========================================================================
