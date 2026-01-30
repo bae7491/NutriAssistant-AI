@@ -45,7 +45,7 @@ def debug_memory():
 @router.get("/debug/menus")
 def debug_menus(
     role: Optional[str] = Query(
-        default=None, description="역할 (밥, 국, 주찬, 부찬, 김치)"
+        default=None, description="역할 (밥, 국, 주찬, 부찬, 김치, 디저트)"
     ),
     limit: int = Query(default=10, ge=1, le=100, description="조회할 메뉴 수"),
 ):

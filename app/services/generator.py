@@ -435,7 +435,9 @@ async def generate_one_month(
                 meal_type == "석식" and d in dinner_dessert_days
             )
             if is_dessert_day and ctx.dessert_pool:
-                dessert = random.choice(ctx.dessert_pool)
+                dessert_name = random.choice(ctx.dessert_pool)
+                dessert_alg = _normalize_allergy(ctx.dessert_allergies.get(dessert_name, ""))
+                dessert = f"{dessert_name} ({dessert_alg})" if dessert_alg else dessert_name
 
             cost = calculate_meal_cost(raw_names)
 
@@ -626,11 +628,14 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
             else:
                 display_names.append(original)
 
-        # 디저트 처리
+        # 디저트 처리 (알레르기 정보 포함)
         dessert = None
+        dessert_raw = None
         if ctx.dessert_pool and random.random() > 0.5:
-            dessert = random.choice(ctx.dessert_pool)
-            raw_names.append(dessert)
+            dessert_raw = random.choice(ctx.dessert_pool)
+            dessert_alg = _normalize_allergy(ctx.dessert_allergies.get(dessert_raw, ""))
+            dessert = f"{dessert_raw} ({dessert_alg})" if dessert_alg else dessert_raw
+            raw_names.append(dessert_raw)
 
         # 비용 계산
         total_cost = calculate_meal_cost(raw_names)

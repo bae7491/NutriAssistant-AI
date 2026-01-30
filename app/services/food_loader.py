@@ -42,6 +42,7 @@ class FoodContext:
     gene_space: List[List[int]]
     source: str
     dessert_pool: List[str]
+    dessert_allergies: Dict[str, str]  # 디저트 메뉴명 → 알레르기 정보 매핑
     last_error: Optional[str] = None
     load_timestamp: Optional[str] = None  # 로드 시간 추가
     memory_size_mb: Optional[float] = None  # 메모리 크기 추가
@@ -295,6 +296,7 @@ def load_spring_and_build_context() -> None:
             gene_space=[],
             source=SPRING_FOOD_API,
             dessert_pool=[],
+            dessert_allergies={},
             last_error=last_err,
             load_timestamp=None,
             memory_size_mb=0.0,
@@ -347,16 +349,17 @@ def load_spring_and_build_context() -> None:
             merged[c] = (merged[c] * ratio).fillna(0)
         logger.info("   ✅ 1인분 기준 영양소 환산 완료")
 
-    # 디저트 풀 분리
+    # 디저트 풀 분리 (알레르기 정보 포함)
     dessert_mask = merged["category"].astype(str).str.strip().isin(DESSERT_CATEGORIES)
-    dessert_pool = (
-        merged.loc[dessert_mask, "menuName"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .unique()
-        .tolist()
-    )
+    dessert_df = merged.loc[dessert_mask, ["menuName", "allergy"]].dropna(subset=["menuName"])
+    dessert_df["menuName"] = dessert_df["menuName"].astype(str).str.strip()
+    dessert_df["allergy"] = dessert_df["allergy"].fillna("").astype(str)
+
+    # 중복 제거 (첫 번째 등장 기준)
+    dessert_df = dessert_df.drop_duplicates(subset=["menuName"], keep="first")
+
+    dessert_pool = dessert_df["menuName"].tolist()
+    dessert_allergies = dict(zip(dessert_df["menuName"], dessert_df["allergy"]))
     logger.info(f"🍰 디저트/음료 풀 분리: {len(dessert_pool)}개")
 
     # 일반 메뉴 후보
@@ -394,6 +397,7 @@ def load_spring_and_build_context() -> None:
             gene_space=[],
             source=SPRING_FOOD_API,
             dessert_pool=dessert_pool,
+            dessert_allergies=dessert_allergies,
             last_error=error_msg,
             load_timestamp=None,
             memory_size_mb=0.0,
@@ -439,6 +443,7 @@ def load_spring_and_build_context() -> None:
         gene_space=gene_space,
         source=SPRING_FOOD_API,
         dessert_pool=dessert_pool,
+        dessert_allergies=dessert_allergies,
         last_error=None,
         load_timestamp=load_timestamp,
         memory_size_mb=0.0,  # 임시값
@@ -470,7 +475,7 @@ def get_valid_menu_names() -> List[str]:
 
     # 모든 역할의 메뉴명을 합침
     valid_names = []
-    for role in ["밥", "국", "주찬", "부찬", "김치"]:
+    for role in ["밥", "국", "주찬", "부찬", "김치", "디저트"]:
         if role in ctx.pool_display_names:
             valid_names.extend(ctx.pool_display_names[role].tolist())
 
