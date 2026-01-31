@@ -14,8 +14,8 @@ from app.core.config import (
     STD_KCAL,
     STD_PROT,
 )
-from app.models.schemas import Options
-from app.services.food_loader import get_context
+from app.models.schemas import Options, NewMenuInput
+from app.services.food_loader import get_context, build_context_with_new_menus, FoodContext
 from app.utils.holidays import get_holidays
 from app.services.cost_loader import get_menu_cost, get_cost_db
 from app.services.ai_analyzer import AIAnalyzer
@@ -56,7 +56,11 @@ def _load_json_dict(path: str, outer_key: Optional[str] = None) -> Dict[str, Any
 
 
 async def generate_one_month(
-    year: int, month: int, opt: Options, report_data: Optional[Dict] = None
+    year: int,
+    month: int,
+    opt: Options,
+    report_data: Optional[Dict] = None,
+    new_menus: Optional[List[NewMenuInput]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     월간 식단 생성
@@ -66,11 +70,17 @@ async def generate_one_month(
         month: 월
         opt: 옵션
         report_data: 리포트 JSON (Spring이 DB에서 조회하여 전달)
+        new_menus: 신메뉴 목록 (Spring에서 전달, 기존 음식 DB와 함께 사용)
 
     Returns:
         (식단 리스트, 메타데이터)
     """
-    ctx = get_context()
+    # 신메뉴가 있으면 병합된 컨텍스트 사용
+    if new_menus:
+        new_menus_dict = [m.model_dump() for m in new_menus]
+        ctx = build_context_with_new_menus(new_menus_dict)
+    else:
+        ctx = get_context()
     constraints = opt.constraints
 
     # ========================================

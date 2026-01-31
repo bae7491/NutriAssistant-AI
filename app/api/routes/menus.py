@@ -57,12 +57,19 @@ async def generate_monthly_menu(request: MonthMenuRequest):
         else:
             logger.info("   리포트 없음 (기본 가중치 사용)")
 
-        # ✅ 리포트를 generator에 전달
+        # ✅ 신메뉴 유무 확인
+        if request.new_menus:
+            logger.info(f"   신메뉴 포함: {len(request.new_menus)}개")
+        else:
+            logger.info("   신메뉴 없음 (기존 DB만 사용)")
+
+        # ✅ 리포트와 신메뉴를 generator에 전달
         meals, meta = await generate_one_month(
             request.year,
             request.month,
             request.options or Options(),
             request.report,  # ← 리포트 전달
+            request.new_menus,  # ← 신메뉴 전달
         )
 
         logger.info(f"✅ 식단 생성 완료: {len(meals)}개")

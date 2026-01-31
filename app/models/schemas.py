@@ -81,16 +81,65 @@ class Options(BaseModel):
     )
 
 
+class NewMenuInput(BaseModel):
+    """신메뉴 입력 (Spring에서 전달)"""
+
+    food_code: str = Field(..., description="음식 코드")
+    food_name: str = Field(..., description="음식명")
+    category: str = Field(..., description="카테고리 (예: 디저트류, 구이류)")
+    kcal: float = Field(default=0, description="칼로리(kcal)")
+    protein: float = Field(default=0, description="단백질(g)")
+    fat: float = Field(default=0, description="지방(g)")
+    carbs: float = Field(default=0, description="탄수화물(g)")
+    calcium: float = Field(default=0, description="칼슘(mg)")
+    iron: float = Field(default=0, description="철분(mg)")
+    vitamin_a: float = Field(default=0, description="비타민A(μg RAE)")
+    thiamin: float = Field(default=0, description="티아민/비타민B1(mg)")
+    riboflavin: float = Field(default=0, description="리보플라빈/비타민B2(mg)")
+    vitamin_c: float = Field(default=0, description="비타민C(mg)")
+    ingredients: Optional[str] = Field(default=None, description="재료 목록")
+    allergy_info: Optional[str] = Field(default=None, description="알레르기 정보 (예: 1, 2, 5, 6)")
+    recipe: Optional[str] = Field(default=None, description="레시피")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "food_code": "두바이초콜릿쿠키",
+                "food_name": "두바이초콜릿쿠키",
+                "category": "디저트류",
+                "kcal": 500,
+                "protein": 6,
+                "fat": 25,
+                "carbs": 62,
+                "calcium": 60,
+                "iron": 3.2,
+                "vitamin_a": 50,
+                "thiamin": 0.22,
+                "riboflavin": 0.18,
+                "vitamin_c": 0,
+                "ingredients": "밀가루, 버터, 설탕, ...",
+                "allergy_info": "1, 2, 5, 6",
+                "recipe": "1. 오븐을 170도로 예열한다.\n2. ...",
+            }
+        }
+    )
+
+
 class MonthMenuRequest(BaseModel):
     """월간 식단 생성 요청"""
 
     year: int = Field(..., ge=2020, le=2030, description="연도")
     month: int = Field(..., ge=1, le=12, description="월")
+    school_id: Optional[int] = Field(default=None, description="학교 ID")
     options: Optional[Options] = Field(
         default=None, description="식단 생성 옵션 및 제약사항 (생략 시 기본값 사용)"
     )
     report: Optional[Dict[str, Any]] = Field(
         default=None, description="월간 리포트 JSON (Spring이 DB에서 조회하여 전달)"
+    )
+    new_menus: Optional[List[NewMenuInput]] = Field(
+        default=None,
+        description="신메뉴 목록 (Spring에서 전달, 기존 음식 DB와 함께 사용)",
     )
 
     model_config = ConfigDict(
@@ -98,6 +147,7 @@ class MonthMenuRequest(BaseModel):
             "example": {
                 "year": 2026,
                 "month": 3,
+                "school_id": 1,
                 "options": {
                     "numGenerations": 150,
                     "constraints": {
@@ -110,6 +160,18 @@ class MonthMenuRequest(BaseModel):
                         },
                     },
                 },
+                "new_menus": [
+                    {
+                        "food_code": "두바이초콜릿쿠키",
+                        "food_name": "두바이초콜릿쿠키",
+                        "category": "디저트류",
+                        "kcal": 500,
+                        "protein": 6,
+                        "fat": 25,
+                        "carbs": 62,
+                        "allergy_info": "1, 2, 5, 6",
+                    }
+                ],
             }
         }
     )

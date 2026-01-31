@@ -487,3 +487,132 @@ def get_valid_menu_names() -> List[str]:
     valid_names = list(set(valid_names))
 
     return valid_names
+
+
+def build_context_with_new_menus(new_menus: List[Dict[str, Any]]) -> FoodContext:
+    """
+    기존 컨텍스트에 신메뉴를 병합한 새 컨텍스트 생성
+
+    Args:
+        new_menus: 신메뉴 리스트 (NewMenuInput 형태의 dict)
+
+    Returns:
+        신메뉴가 병합된 FoodContext
+    """
+    import copy
+    from app.utils.text import get_role
+
+    base_ctx = get_context()
+
+    if not new_menus:
+        return base_ctx
+
+    logger.info("=" * 60)
+    logger.info(f"🆕 신메뉴 {len(new_menus)}개 병합 시작")
+    logger.info("=" * 60)
+
+    # 깊은 복사로 기존 컨텍스트 보존
+    new_pools = {role: pool.copy() for role, pool in base_ctx.pools.items()}
+    new_dessert_pool = list(base_ctx.dessert_pool)
+    new_dessert_allergies = dict(base_ctx.dessert_allergies)
+
+    # 디저트 카테고리 목록
+    from app.core.config import DESSERT_CATEGORIES, NUM_COLS
+
+    added_count = {"dessert": 0, "meal": 0}
+
+    for menu in new_menus:
+        food_name = menu.get("food_name", "").strip()
+        category = menu.get("category", "").strip()
+        allergy = menu.get("allergy_info", "") or ""
+
+        if not food_name:
+            logger.warning(f"   ⚠️ 신메뉴 스킵 (이름 없음): {menu}")
+            continue
+
+        # 디저트/음료 카테고리인 경우
+        if category in DESSERT_CATEGORIES:
+            if food_name not in new_dessert_pool:
+                new_dessert_pool.append(food_name)
+                new_dessert_allergies[food_name] = str(allergy)
+                added_count["dessert"] += 1
+                logger.info(f"   🍰 디저트 추가: {food_name} ({category})")
+        else:
+            # 일반 메뉴 - 역할 결정
+            role = get_role(category)
+            if role is None:
+                logger.warning(f"   ⚠️ 역할 매핑 실패: {food_name} ({category})")
+                continue
+
+            if role not in new_pools:
+                logger.warning(f"   ⚠️ 존재하지 않는 역할: {role}")
+                continue
+
+            # 이미 존재하는지 확인
+            existing_names = new_pools[role]["menuName"].tolist()
+            if food_name in existing_names:
+                logger.info(f"   ℹ️ 이미 존재하는 메뉴 스킵: {food_name}")
+                continue
+
+            # 새 행 추가
+            new_row = {
+                "menuName": food_name,
+                "category": category,
+                "allergy": str(allergy),
+                "kcal": float(menu.get("kcal", 0)),
+                "carbs": float(menu.get("carbs", 0)),
+                "protein": float(menu.get("protein", 0)),
+                "fat": float(menu.get("fat", 0)),
+                "calcium": float(menu.get("calcium", 0)),
+                "iron": float(menu.get("iron", 0)),
+                "vitaminA": float(menu.get("vitamin_a", 0)),
+                "vitaminC": float(menu.get("vitamin_c", 0)),
+                "role": role,
+            }
+
+            new_pools[role] = pd.concat(
+                [new_pools[role], pd.DataFrame([new_row])],
+                ignore_index=True,
+            )
+            added_count["meal"] += 1
+            logger.info(f"   🍽️ {role} 추가: {food_name} ({category})")
+
+    # 행렬 및 배열 재생성
+    pool_matrices = {r: new_pools[r][NUM_COLS].values for r in new_pools}
+    pool_display_names = {r: new_pools[r]["menuName"].values for r in new_pools}
+    pool_cats = {r: new_pools[r]["category"].values for r in new_pools}
+    pool_allergies = {
+        r: new_pools[r]["allergy"].fillna("").astype(str).values for r in new_pools
+    }
+
+    # gene_space 재생성
+    gene_space = [list(range(len(new_pools[r]))) for r in ROLE_ORDER]
+
+    # 기본 쌀밥 인덱스
+    default_rice_idx = base_ctx.default_rice_idx
+
+    logger.info("=" * 60)
+    logger.info(f"✅ 신메뉴 병합 완료")
+    logger.info(f"   - 디저트 추가: {added_count['dessert']}개")
+    logger.info(f"   - 일반 메뉴 추가: {added_count['meal']}개")
+    logger.info(f"   - 총 디저트 풀: {len(new_dessert_pool)}개")
+    for role, pool in new_pools.items():
+        logger.info(f"   - {role}: {len(pool)}개")
+    logger.info("=" * 60)
+
+    return FoodContext(
+        ready=True,
+        pools=new_pools,
+        pool_matrices=pool_matrices,
+        pool_display_names=pool_display_names,
+        pool_cats=pool_cats,
+        pool_allergies=pool_allergies,
+        default_rice_idx=default_rice_idx,
+        gene_space=gene_space,
+        source=base_ctx.source + " + new_menus",
+        dessert_pool=new_dessert_pool,
+        dessert_allergies=new_dessert_allergies,
+        last_error=None,
+        load_timestamp=base_ctx.load_timestamp,
+        memory_size_mb=base_ctx.memory_size_mb,
+    )
