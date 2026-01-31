@@ -17,6 +17,8 @@ from app.models.schemas import (
     ReportAnalysisRequest,
     ReportAnalysisResponse,
     MenuWeight,
+    NewMenuGenerationRequest,
+    NewMenuGenerationResponse,
 )
 
 # [확인] 여기가 '주방장'을 불러오는 부분입니다.
@@ -25,6 +27,7 @@ from app.models.schemas import (
 from app.services.generator import generate_one_month, generate_single_candidate
 from app.services.food_loader import get_context
 from app.services.ai_analyzer import AIAnalyzer
+from app.services.new_menu_service import NewMenuService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -154,3 +157,49 @@ async def analyze_report(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"리포트 분석 실패: {str(e)}")
+
+
+# ==============================================================================
+# 5. 신메뉴 생성 API
+# 요청: POST /v1/menus/new-menu:generate
+# 역할: 트렌드 분석과 게시판 피드백을 기반으로 신메뉴 추천/생성
+# ==============================================================================
+@router.post("/v1/menus/new-menu:generate", response_model=NewMenuGenerationResponse)
+async def generate_new_menu(
+    request: NewMenuGenerationRequest,
+    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+):
+    """
+    신메뉴 생성
+
+    게시판 피드백과 네이버 트렌드 분석을 통해 신메뉴를 추천합니다.
+    """
+    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    try:
+        logger.info("=" * 60)
+        logger.info("🍽️ 신메뉴 생성 API 요청")
+        logger.info(f"   - use_trend: {request.use_trend}")
+        logger.info(f"   - use_board: {request.use_board}")
+        logger.info(f"   - trend_days: {request.trend_days}")
+        logger.info(f"   - count: {request.count}")
+        logger.info("=" * 60)
+
+        service = NewMenuService()
+        result = await service.generate_new_menus(
+            use_trend=request.use_trend,
+            use_board=request.use_board,
+            trend_days=request.trend_days,
+            count=request.count,
+        )
+
+        logger.info(f"✅ 신메뉴 생성 완료: {len(result.new_menus)}개")
+        return result
+
+    except ValueError as e:
+        logger.error(f"❌ 신메뉴 생성 실패 (ValueError): {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"❌ 신메뉴 생성 실패: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"신메뉴 생성 실패: {str(e)}")

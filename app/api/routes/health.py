@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.services.food_loader import get_context, get_context_stats
 from app.services.cost_loader import get_cost_stats, reload_cost_db
+from app.services.new_menu_service import NewMenuService
 
 
 router = APIRouter()
@@ -204,3 +205,51 @@ def reload_costs():
     """단가 DB 재로드"""
     cost_db = reload_cost_db()
     return {"status": "reloaded", "total_menus": len(cost_db)}
+
+
+@router.get("/debug/new-menu/test")
+async def test_new_menu_generation(
+    use_trend: bool = Query(default=True, description="트렌드 분석 사용 여부"),
+    use_board: bool = Query(default=True, description="게시판 분석 사용 여부"),
+    trend_days: int = Query(default=7, ge=1, le=30, description="트렌드 분석 기간 (일)"),
+    count: int = Query(default=3, ge=1, le=10, description="생성할 신메뉴 수"),
+):
+    """
+    신메뉴 생성 API 테스트
+
+    트렌드 분석과 게시판 피드백을 기반으로 신메뉴를 생성합니다.
+    """
+    try:
+        service = NewMenuService()
+        result = await service.generate_new_menus(
+            use_trend=use_trend,
+            use_board=use_board,
+            trend_days=trend_days,
+            count=count,
+        )
+
+        return {
+            "status": "ok",
+            "generated_at": result.generated_at,
+            "new_menus_count": len(result.new_menus),
+            "new_menus": [
+                {
+                    "menu_name": menu.menu_name,
+                    "category": menu.category,
+                    "source": menu.source,
+                    "ingredients": menu.ingredients[:5],  # 상위 5개만
+                    "allergens": menu.allergens,
+                    "nutrition": menu.nutrition.model_dump(),
+                    "matched_menu": menu.matched_menu,
+                    "confidence": menu.confidence,
+                }
+                for menu in result.new_menus
+            ],
+            "analysis_summary": result.analysis_summary.model_dump(),
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+        }

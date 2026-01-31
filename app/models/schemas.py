@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -307,6 +307,165 @@ class ReportAnalysisResponse(BaseModel):
                     {"menu_name": "돈까스", "weight": 0.7, "reason": "만족도 높음"},
                 ],
                 "total_analyzed": 2,
+            }
+        }
+    )
+
+
+# ==============================================================================
+# 신메뉴 생성 관련 스키마
+# ==============================================================================
+class NewMenuGenerationRequest(BaseModel):
+    """신메뉴 생성 요청"""
+
+    use_trend: bool = Field(default=True, description="트렌드 분석 사용 여부")
+    use_board: bool = Field(default=True, description="게시판 분석 사용 여부")
+    trend_days: int = Field(
+        default=30, ge=1, le=30, description="트렌드 분석 기간 (일)"
+    )
+    count: int = Field(default=2, ge=1, le=20, description="생성할 신메뉴 수")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "use_trend": True,
+                "use_board": True,
+                "trend_days": 30,
+                "count": 2,
+            }
+        }
+    )
+
+
+class NutritionInfo(BaseModel):
+    """영양 정보"""
+
+    kcal: float = Field(..., description="칼로리(kcal)")
+    carbs: float = Field(..., description="탄수화물(g)")
+    protein: float = Field(..., description="단백질(g)")
+    fat: float = Field(..., description="지방(g)")
+    calcium: float = Field(default=0, description="칼슘(mg)")
+    iron: float = Field(default=0, description="철분(mg)")
+    vitamin_a: float = Field(default=0, description="비타민A(μg RAE)")
+    thiamin: float = Field(default=0, description="티아민/비타민B1(mg)")
+    riboflavin: float = Field(default=0, description="리보플라빈/비타민B2(mg)")
+    vitamin_c: float = Field(default=0, description="비타민C(mg)")
+    serving_basis: str = Field(
+        default="100g", description="영양성분 기준량 (예: 100g, 100ml)"
+    )
+    food_weight: str = Field(default="100ml", description="식품 중량 (예: 150ml)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "kcal": 350,
+                "carbs": 45,
+                "protein": 5,
+                "fat": 18,
+                "calcium": 20,
+                "iron": 1.5,
+                "vitamin_a": 10,
+                "thiamin": 0.1,
+                "riboflavin": 0.1,
+                "vitamin_c": 5,
+                "serving_basis": "100g",
+                "food_weight": 150,
+            }
+        }
+    )
+
+
+class NewMenuItem(BaseModel):
+    """신메뉴 항목"""
+
+    menu_name: str = Field(..., description="메뉴명")
+    category: str = Field(..., description="카테고리")
+    source: Literal["trend", "board", "hybrid"] = Field(
+        ..., description="메뉴 출처 (trend/board/hybrid)"
+    )
+    ingredients: List[str] = Field(..., description="재료 목록")
+    recipe_steps: List[str] = Field(..., description="레시피 단계")
+    allergens: List[int] = Field(..., description="알레르기 번호 목록")
+    nutrition: NutritionInfo = Field(..., description="영양 정보")
+    matched_menu: Optional[str] = Field(None, description="영양 매칭된 기존 메뉴")
+    confidence: float = Field(..., ge=0, le=1, description="신뢰도 (0~1)")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "menu_name": "두바이초콜릿쿠키",
+                "category": "디저트류",
+                "source": "trend",
+                "ingredients": ["밀가루", "카다이프", "피스타치오", "초콜릿"],
+                "recipe_steps": ["1. 반죽 준비", "2. 성형", "3. 굽기"],
+                "allergens": [1, 2, 6],
+                "nutrition": {"kcal": 350, "carbs": 45, "protein": 5, "fat": 18},
+                "matched_menu": "초코칩쿠키",
+                "confidence": 0.85,
+            }
+        }
+    )
+
+
+class AnalysisSummary(BaseModel):
+    """분석 요약"""
+
+    trend_keywords: List[str] = Field(
+        default_factory=list, description="트렌드 키워드 목록"
+    )
+    board_votes: Dict[str, int] = Field(
+        default_factory=dict, description="게시판 득표 현황"
+    )
+    total_candidates: int = Field(..., description="총 후보 수")
+    final_count: int = Field(..., description="최종 선정 수")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "trend_keywords": ["두바이초콜릿", "로제떡볶이"],
+                "board_votes": {"로제파스타": 15, "마라탕": 12},
+                "total_candidates": 25,
+                "final_count": 5,
+            }
+        }
+    )
+
+
+class NewMenuGenerationResponse(BaseModel):
+    """신메뉴 생성 응답"""
+
+    generated_at: str = Field(..., description="생성 시각 (ISO 8601)")
+    new_menus: List[NewMenuItem] = Field(..., description="생성된 신메뉴 목록")
+    analysis_summary: AnalysisSummary = Field(..., description="분석 요약")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "generated_at": "2026-01-31T10:00:00",
+                "new_menus": [
+                    {
+                        "menu_name": "두바이초콜릿쿠키",
+                        "category": "디저트류",
+                        "source": "trend",
+                        "ingredients": ["밀가루", "카다이프", "피스타치오"],
+                        "recipe_steps": ["1. 반죽 준비", "2. 성형"],
+                        "allergens": [1, 2, 6],
+                        "nutrition": {
+                            "kcal": 350,
+                            "carbs": 45,
+                            "protein": 5,
+                            "fat": 18,
+                        },
+                        "matched_menu": "초코칩쿠키",
+                        "confidence": 0.85,
+                    }
+                ],
+                "analysis_summary": {
+                    "trend_keywords": ["두바이초콜릿"],
+                    "board_votes": {"로제파스타": 15},
+                    "total_candidates": 25,
+                    "final_count": 5,
+                },
             }
         }
     )

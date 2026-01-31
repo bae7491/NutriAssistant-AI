@@ -7,6 +7,11 @@ INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "")  # 비우면 검사 안 함
 # 통합 음식 DB 제공 API 엔드포인트
 SPRING_FOOD_API = os.getenv("SPRING_FOOD_API", "http://localhost:8080/internal/food")
 
+# Spring 게시판 API (신메뉴 요청 피드백 조회용)
+SPRING_BOARD_API = os.getenv(
+    "SPRING_BOARD_API", "http://localhost:8080/new-menu/internal/feedback"
+)
+
 # 페이지 크기 (Spring API가 Page 형태일 때)
 SPRING_PAGE_SIZE = int(os.getenv("SPRING_PAGE_SIZE", "2000"))
 
