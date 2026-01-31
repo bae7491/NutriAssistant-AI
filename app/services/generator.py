@@ -13,6 +13,8 @@ from app.core.config import (
     DESSERT_FREQUENCY_PER_WEEK,
     STD_KCAL,
     STD_PROT,
+    KCAL_TOLERANCE_RATIO,
+    get_nutrition_standard,
 )
 from app.models.schemas import Options, NewMenuInput
 from app.services.food_loader import get_context, build_context_with_new_menus, FoodContext
@@ -61,6 +63,7 @@ async def generate_one_month(
     opt: Options,
     report_data: Optional[Dict] = None,
     new_menus: Optional[List[NewMenuInput]] = None,
+    nutrition_key: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     월간 식단 생성
@@ -71,6 +74,7 @@ async def generate_one_month(
         opt: 옵션
         report_data: 리포트 JSON (Spring이 DB에서 조회하여 전달)
         new_menus: 신메뉴 목록 (Spring에서 전달, 기존 음식 DB와 함께 사용)
+        nutrition_key: 영양 기준 키 (ELEMENTARY, MIDDLE_MALE, etc.)
 
     Returns:
         (식단 리스트, 메타데이터)
@@ -81,13 +85,37 @@ async def generate_one_month(
         ctx = build_context_with_new_menus(new_menus_dict)
     else:
         ctx = get_context()
+
     constraints = opt.constraints
+
+    # ========================================
+    # 영양 기준 설정 (nutrition_key 기반)
+    # constraints.nutrition_key 우선, 없으면 파라미터 nutrition_key 사용
+    # ========================================
+    effective_nutrition_key = constraints.nutrition_key or nutrition_key
+    nutrition_std = get_nutrition_standard(effective_nutrition_key)
+    std_kcal = float(nutrition_std["kcal"])
+    std_prot = float(nutrition_std["prot"])
+
+    # 칼로리 허용 범위 계산
+    min_kcal_limit = int(std_kcal * (1.0 - KCAL_TOLERANCE_RATIO))
+    max_kcal_limit = int(std_kcal * (1.0 + KCAL_TOLERANCE_RATIO))
+
+    # 탄수화물 범위 계산 (55~65%)
+    min_carb_g = (std_kcal * 0.55) / 4
+    max_carb_g = (std_kcal * 0.65) / 4
+
+    logger.info("=" * 60)
+    logger.info(f"🎯 영양 기준 설정: [{effective_nutrition_key or 'DEFAULT(고등_남)'}]")
+    logger.info(f"   - 목표 에너지: {std_kcal}kcal")
+    logger.info(f"   - 목표 단백질: {std_prot}g")
+    logger.info(f"   - 허용 칼로리 범위: {min_kcal_limit} ~ {max_kcal_limit} kcal")
+    logger.info(f"   - 탄수화물 범위: {int(min_carb_g)}g ~ {int(max_carb_g)}g")
+    logger.info("=" * 60)
 
     # ========================================
     # 1. 제약사항 처리
     # ========================================
-    constraints = opt.constraints
-
     # ✅ 원본 제약사항 로깅
     logger.info("=" * 60)
     logger.info("📥 받은 제약사항 (원본)")
@@ -172,19 +200,28 @@ async def generate_one_month(
     logger.info("=" * 60)
     logger.info("📋 최종 적용 제약사항")
     logger.info("=" * 60)
-    logger.info(f"   목표 단가: {constraints.target_price:,}원")
-    logger.info(f"   허용 오차: ±{constraints.cost_tolerance*100:.0f}%")
-    logger.info(f"   최대 상한: {constraints.max_price_limit:,}원")
-    logger.info(f"   조리 인원: {constraints.cook_staff}명")
-    logger.info(f"   시설 현황:")
+
+    # 단가 관련 상세 로깅
+    target_price = constraints.target_price
+    tolerance = constraints.cost_tolerance
+    min_price = int(target_price * (1 - tolerance))
+    max_price = int(target_price * (1 + tolerance))
+
+    logger.info(f"   💰 단가 제약:")
+    logger.info(f"      - 목표 단가: {target_price:,}원")
+    logger.info(f"      - 허용 오차: ±{tolerance*100:.0f}%")
+    logger.info(f"      - 허용 범위: {min_price:,}원 ~ {max_price:,}원")
+    logger.info(f"      - 최대 상한 (절대): {constraints.max_price_limit:,}원")
+    logger.info(f"   👨‍🍳 조리 인원: {constraints.cook_staff}명")
+    logger.info(f"   🔧 시설 현황 (facility_text: '{constraints.facility_text}'):")
     logger.info(
-        f"      - 오븐: {'✅ 사용 가능' if constraints.facility_flags.has_oven else '❌ 사용 불가'}"
+        f"      - 오븐: {'✅ 사용 가능' if constraints.facility_flags.has_oven else '❌ 사용 불가 → 오븐구이/피자/그라탕 등 제외'}"
     )
     logger.info(
-        f"      - 튀김기: {'✅ 사용 가능' if constraints.facility_flags.has_fryer else '❌ 사용 불가'}"
+        f"      - 튀김기: {'✅ 사용 가능' if constraints.facility_flags.has_fryer else '❌ 사용 불가 → 튀김/돈까스/치킨 등 제외'}"
     )
     logger.info(
-        f"      - 철판: {'✅ 사용 가능' if constraints.facility_flags.has_griddle else '❌ 사용 불가'}"
+        f"      - 철판: {'✅ 사용 가능' if constraints.facility_flags.has_griddle else '❌ 사용 불가 → 전/부침개/철판볶음 등 제외'}"
     )
     logger.info("=" * 60)
 
@@ -252,10 +289,14 @@ async def generate_one_month(
     global_menu_tracker: Dict[str, Tuple[int, int, int]] = {}
     current_month_counts: Dict[str, int] = {}
 
+    # 주간 중복 방지용 트래커
+    current_week_menus: Dict[str, int] = {}  # 메뉴명 → 해당 주 사용 횟수
+    current_week_number = 0
+
     holidays = get_holidays(year)
     last_day = calendar.monthrange(year, month)[1]
 
-    # 디저트 주 2회 랜덤 배정
+    # 디저트 주 2회 랜덤 배정 (평일 수에 비례)
     weekdays_by_week: Dict[int, List[int]] = {}
     for d in range(1, last_day + 1):
         dt = datetime(year, month, d)
@@ -266,11 +307,29 @@ async def generate_one_month(
 
     lunch_dessert_days: set[int] = set()
     dinner_dessert_days: set[int] = set()
+
+    # 기준: 5일 기준 DESSERT_FREQUENCY_PER_WEEK(2)회 → 40% 비율
+    FULL_WEEK_DAYS = 5
+    dessert_ratio = DESSERT_FREQUENCY_PER_WEEK / FULL_WEEK_DAYS  # 0.4
+
     for days in weekdays_by_week.values():
-        k = min(len(days), DESSERT_FREQUENCY_PER_WEEK)
+        num_days = len(days)
+        if num_days == 0:
+            continue
+
+        # 평일 수에 비례한 디저트 횟수 계산
+        # 5일 → 2회, 4일 → 1~2회, 3일 → 1회, 2일 → 1회, 1일 → 0회
+        proportional_count = num_days * dessert_ratio
+        k = int(round(proportional_count))
+
+        # 최소 0회, 최대 평일 수
+        k = max(0, min(k, num_days))
+
         if k > 0:
             lunch_dessert_days.update(random.sample(days, k))
             dinner_dessert_days.update(random.sample(days, k))
+
+    logger.info(f"🍰 디저트 배정: 중식 {len(lunch_dessert_days)}일, 석식 {len(dinner_dessert_days)}일")
 
     ga_params = dict(
         num_generations=opt.numGenerations,
@@ -287,12 +346,13 @@ async def generate_one_month(
 
     current_meal_type = "중식"
     today_lunch_menus: List[str] = []
+    current_day_for_fitness = 0  # fitness 함수에서 사용할 현재 날짜
 
     # ========================================
     # 5. Fitness 함수
     # ========================================
     def fitness_func(ga_instance, solution, solution_idx):
-        nonlocal global_day_count, current_meal_type, today_lunch_menus
+        nonlocal global_day_count, current_meal_type, today_lunch_menus, current_week_menus
 
         indices = solution.astype(int)
         display_names = [
@@ -310,55 +370,99 @@ async def generate_one_month(
         score = 1_000_000.0
         penalty = 0.0
 
-        # 영양소 평가
-        if (STD_KCAL * 0.9) <= t_kcal <= (STD_KCAL * 1.1):
+        # 영양소 평가 (동적 영양 기준 사용)
+        if (std_kcal * 0.9) <= t_kcal <= (std_kcal * 1.1):
             score += 200_000
         else:
-            penalty += 100_000 + abs(t_kcal - STD_KCAL) * 200
+            penalty += 100_000 + abs(t_kcal - std_kcal) * 200
 
-        if t_prot < STD_PROT:
-            penalty += (STD_PROT - t_prot) * 20_000
+        if t_prot < std_prot:
+            penalty += (std_prot - t_prot) * 20_000
 
-        # 중복 방지
+        # ========================================
+        # 중복 방지 (강화)
+        # ========================================
+
+        # 1) 같은 끼니 내 주찬1/주찬2 중복 방지
         if display_names[2] == display_names[3]:
             penalty += 2_000_000
         if cats[2] == cats[3]:
             penalty += 1_000_000
 
+        # 2) 같은 날 점심/저녁 중복 방지 (국, 주찬, 부찬 전체 체크)
         if current_meal_type == "석식" and today_lunch_menus:
-            curr_set = {display_names[i] for i in [1, 2, 3, 4]}
-            if curr_set & set(today_lunch_menus):
-                penalty += 2_000_000
+            # 국(1), 주찬1(2), 주찬2(3), 부찬(4) 체크
+            curr_main_menus = {display_names[i] for i in [1, 2, 3, 4]}
+            overlap_count = len(curr_main_menus & set(today_lunch_menus))
+            if overlap_count > 0:
+                penalty += overlap_count * 2_000_000  # 겹치는 메뉴당 페널티
+
+        # 3) 같은 주간 내 중복 방지 (쌀밥, 김치 제외)
+        for i, name in enumerate(display_names):
+            nm = name.strip()
+
+            # 쌀밥/흰밥, 배추김치는 중복 허용
+            if "쌀밥" in nm or "흰밥" in nm or "배추김치" in nm:
+                continue
+
+            week_count = current_week_menus.get(nm, 0)
+            if week_count >= 1:
+                # 같은 주에 이미 사용된 메뉴 → 페널티
+                penalty += 1_500_000 * week_count  # 사용 횟수에 비례한 페널티
 
         # 제약사항: 단가
         current_cost = sum(get_menu_cost(name) for name in display_names)
 
+        # 1) 최대 단가 상한 초과: 강한 페널티 (hard constraint)
         if current_cost > constraints.max_price_limit:
-            penalty += (current_cost - constraints.max_price_limit) * 5000
+            over_amount = current_cost - constraints.max_price_limit
+            penalty += 2_000_000 + (over_amount * 10_000)  # 초과 시 강력한 페널티
 
+        # 2) 목표 단가 기준 평가
         cost_diff = abs(current_cost - constraints.target_price)
-        if cost_diff > constraints.target_price * constraints.cost_tolerance:
-            penalty += (cost_diff / 10.0) * 1000
+        tolerance_amount = constraints.target_price * constraints.cost_tolerance
 
-        # 제약사항: 시설
+        if cost_diff <= tolerance_amount:
+            # 목표 단가 허용 범위 내: 보너스 점수
+            score += 150_000
+        else:
+            # 허용 범위 초과: 초과 정도에 비례한 페널티
+            over_tolerance = cost_diff - tolerance_amount
+            penalty += over_tolerance * 500  # 원당 500점 페널티
+
+        # 제약사항: 시설 (강화된 페널티)
         flags = constraints.facility_flags.model_dump()
+
+        # 오븐 필요 메뉴 키워드
+        OVEN_KEYWORDS = [
+            "오븐", "베이크", "그라탕", "라자냐", "피자", "구이",
+            "로스트", "그릴", "오븐구이", "치즈구이", "치즈오븐"
+        ]
+        # 튀김기 필요 메뉴 키워드
+        FRYER_KEYWORDS = [
+            "튀김", "돈까스", "탕수육", "치킨", "강정", "커틀릿",
+            "까스", "프라이", "너겟", "텐더", "크로켓", "고로케"
+        ]
+        # 철판 필요 메뉴 키워드
+        GRIDDLE_KEYWORDS = [
+            "전", "부침", "지짐", "팬케이크", "빈대떡", "파전",
+            "호떡", "철판", "볶음밥", "부침개"
+        ]
+
         for name in display_names:
             n = str(name)
 
-            if (not flags.get("has_oven", True)) and any(
-                k in n for k in ["오븐", "베이크", "그라탕", "라자냐"]
-            ):
-                penalty += 500_000
+            # 오븐 없는데 오븐 필요 메뉴 선택
+            if (not flags.get("has_oven", True)) and any(k in n for k in OVEN_KEYWORDS):
+                penalty += 2_000_000
 
-            if (not flags.get("has_fryer", True)) and any(
-                k in n for k in ["튀김", "돈까스", "탕수육", "치킨", "강정"]
-            ):
-                penalty += 500_000
+            # 튀김기 없는데 튀김 메뉴 선택
+            if (not flags.get("has_fryer", True)) and any(k in n for k in FRYER_KEYWORDS):
+                penalty += 2_000_000
 
-            if (not flags.get("has_griddle", True)) and any(
-                k in n for k in ["전", "부침", "지짐", "팬케이크", "빈대떡"]
-            ):
-                penalty += 500_000
+            # 철판 없는데 철판 필요 메뉴 선택
+            if (not flags.get("has_griddle", True)) and any(k in n for k in GRIDDLE_KEYWORDS):
+                penalty += 2_000_000
 
         # 가중치 및 빈도 제한
         for i, name in enumerate(display_names):
@@ -398,6 +502,13 @@ async def generate_one_month(
         dt = datetime(year, month, d)
         if dt.weekday() >= 5 or dt.date() in holidays:
             continue
+
+        # 주간 번호 확인 및 트래커 초기화
+        week_number = dt.isocalendar()[1]
+        if week_number != current_week_number:
+            current_week_number = week_number
+            current_week_menus = {}  # 새로운 주 시작 → 트래커 초기화
+            logger.info(f"   📅 {week_number}주차 시작")
 
         global_day_count += 1
         today_lunch_menus = []
@@ -484,14 +595,23 @@ async def generate_one_month(
                     raw_names[4],
                 ]
 
-            # tracker 업데이트
+            # tracker 업데이트 (월간 + 주간)
             for nm in raw_names:
                 nm_clean = nm.strip()
+
+                # 월간 카운트 업데이트
                 current_month_counts[nm_clean] = (
                     current_month_counts.get(nm_clean, 0) + 1
                 )
+
+                # 쌀밥/흰밥, 배추김치는 중복 트래킹 제외
                 if "쌀밥" in nm_clean or "흰밥" in nm_clean or "배추김치" in nm_clean:
                     continue
+
+                # 주간 카운트 업데이트
+                current_week_menus[nm_clean] = current_week_menus.get(nm_clean, 0) + 1
+
+                # 글로벌 트래커 업데이트 (쿨다운)
                 last_seen, cnt, _ = global_menu_tracker.get(nm_clean, (-100, 0, 0))
                 global_menu_tracker[nm_clean] = (
                     global_day_count,
@@ -500,6 +620,24 @@ async def generate_one_month(
                 )
 
     logger.info(f"✅ 식단 생성 완료: {len(rows)}개 식단")
+
+    # 단가 통계 로깅
+    if rows:
+        costs = [r["Cost"] for r in rows]
+        avg_cost = sum(costs) / len(costs)
+        min_cost = min(costs)
+        max_cost = max(costs)
+        within_target = sum(1 for c in costs if min_price <= c <= max_price)
+
+        logger.info("=" * 60)
+        logger.info("💰 단가 통계")
+        logger.info("=" * 60)
+        logger.info(f"   - 평균 단가: {int(avg_cost):,}원")
+        logger.info(f"   - 최저 단가: {min_cost:,}원")
+        logger.info(f"   - 최고 단가: {max_cost:,}원")
+        logger.info(f"   - 목표 범위 내 식단: {within_target}/{len(rows)}개 ({within_target/len(rows)*100:.1f}%)")
+        logger.info(f"   - 최대 상한 초과 식단: {sum(1 for c in costs if c > constraints.max_price_limit)}개")
+        logger.info("=" * 60)
 
     # ========================================
     # 7. 메타데이터 생성
@@ -513,6 +651,19 @@ async def generate_one_month(
             "max_price_limit": constraints.max_price_limit,
             "cook_staff": constraints.cook_staff,
             "facility_flags": constraints.facility_flags.model_dump(),
+        },
+        "nutritionStandard": {
+            "nutrition_key": effective_nutrition_key or "DEFAULT(고등_남)",
+            "kcal": std_kcal,
+            "protein": std_prot,
+            "kcal_range": {
+                "min": min_kcal_limit,
+                "max": max_kcal_limit,
+            },
+            "carb_range_g": {
+                "min": int(min_carb_g),
+                "max": int(max_carb_g),
+            },
         },
     }
 

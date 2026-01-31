@@ -42,18 +42,23 @@ class AIAnalyzer:
                     {
                         "role": "system",
                         "content": (
-                            "너는 조리 시설 분석기다.\n"
-                            "입력은 '변경/이슈' 텍스트일 수 있다(예: '오븐 고장').\n"
-                            "따라서 입력에 언급된 장비만 판단하고, 언급되지 않은 장비는 JSON에 포함하지 마라.\n"
-                            "반드시 아래 키 중 필요한 것만 포함해서 JSON으로만 출력해라:\n"
-                            "- has_oven\n"
-                            "- has_fryer\n"
-                            "- has_griddle\n"
-                            "규칙:\n"
-                            "- '오븐'이 언급되고 '고장/불가/사용불가/못씀'이면 has_oven=false\n"
-                            "- '튀김기/튀김'이 언급되고 '고장/불가/사용불가/못씀'이면 has_fryer=false\n"
-                            "- '철판/부침/전/그리들'이 언급되고 '고장/불가/사용불가/못씀'이면 has_griddle=false\n"
-                            "- 언급되었지만 문제 없음이면 true\n"
+                            "너는 급식실 조리 시설 분석기다.\n"
+                            "입력은 두 가지 형태일 수 있다:\n"
+                            "1. 보유 장비 목록 (예: '오븐, 찜기, 전기밥솥')\n"
+                            "2. 장비 이슈/변경 사항 (예: '오븐 고장', '튀김기 사용불가')\n\n"
+                            "반드시 아래 3개 키를 모두 포함한 JSON으로 출력해라:\n"
+                            "- has_oven: 오븐 사용 가능 여부\n"
+                            "- has_fryer: 튀김기 사용 가능 여부\n"
+                            "- has_griddle: 철판/그리들 사용 가능 여부\n\n"
+                            "판단 규칙:\n"
+                            "1. 보유 장비 목록 형태인 경우:\n"
+                            "   - 오븐/컨벡션오븐이 언급됨 → has_oven=true, 아니면 false\n"
+                            "   - 튀김기/프라이어가 언급됨 → has_fryer=true, 아니면 false\n"
+                            "   - 철판/그리들/핫플레이트가 언급됨 → has_griddle=true, 아니면 false\n"
+                            "   - 언급되지 않은 장비는 없는 것으로 판단 (false)\n"
+                            "2. 이슈/변경 형태인 경우:\n"
+                            "   - '고장/불가/사용불가/수리중'이 붙으면 해당 장비 false\n"
+                            "   - 그 외 장비는 true (기본 보유 가정)\n"
                         ),
                     },
                     {"role": "user", "content": facility_text},
@@ -62,7 +67,13 @@ class AIAnalyzer:
             )
 
             result = json.loads(response.choices[0].message.content)
-            return result
+
+            # 모든 키가 있는지 확인하고, 없으면 기본값 설정
+            return {
+                "has_oven": result.get("has_oven", False),
+                "has_fryer": result.get("has_fryer", False),
+                "has_griddle": result.get("has_griddle", False),
+            }
 
         except ValueError as e:
             raise e

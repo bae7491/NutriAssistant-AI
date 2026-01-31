@@ -14,6 +14,10 @@ class FacilityFlags(BaseModel):
 class Constraints(BaseModel):
     """식단 생성 제약사항"""
 
+    nutrition_key: Optional[str] = Field(
+        default=None,
+        description="영양 기준 키 (ELEMENTARY, MIDDLE_MALE, MIDDLE_FEMALE, MIDDLE_COED, HIGH_MALE, HIGH_FEMALE, HIGH_COED)",
+    )
     target_price: int = Field(default=5600, description="목표 단가(원)")
     cost_tolerance: float = Field(default=0.10, description="단가 허용 오차 비율 (0~1)")
     max_price_limit: int = Field(default=6000, description="최대 단가 상한선(원)")
@@ -29,6 +33,7 @@ class Constraints(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
+                "nutrition_key": "HIGH_MALE",
                 "target_price": 5000,
                 "cost_tolerance": 0.15,
                 "max_price_limit": 5500,
@@ -131,6 +136,10 @@ class MonthMenuRequest(BaseModel):
     year: int = Field(..., ge=2020, le=2030, description="연도")
     month: int = Field(..., ge=1, le=12, description="월")
     school_id: Optional[int] = Field(default=None, description="학교 ID")
+    nutrition_key: Optional[str] = Field(
+        default=None,
+        description="영양 기준 키 (ELEMENTARY, MIDDLE_MALE, MIDDLE_FEMALE, MIDDLE_COED, HIGH_MALE, HIGH_FEMALE, HIGH_COED)",
+    )
     options: Optional[Options] = Field(
         default=None, description="식단 생성 옵션 및 제약사항 (생략 시 기본값 사용)"
     )
@@ -148,6 +157,7 @@ class MonthMenuRequest(BaseModel):
                 "year": 2026,
                 "month": 3,
                 "school_id": 1,
+                "nutrition_key": "HIGH_MALE",
                 "options": {
                     "numGenerations": 150,
                     "constraints": {

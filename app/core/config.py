@@ -67,6 +67,116 @@ ROLE_RULES = {
 # 6칸 고정(주찬 2개)
 ROLE_ORDER = ["밥", "국", "주찬", "주찬", "부찬", "김치"]
 
-# 기본 영양 기준(필요하면 요청 옵션으로 바꿔도 됨)
+# =========================================================
+# 영양 기준 DB (학교급/성별별)
+# =========================================================
+NUTRITION_STANDARDS_DB = {
+    "초등": {
+        "kcal": 670,
+        "prot": 16.7,
+        "vitA": 137,
+        "vitC": 18.4,
+        "ca": 217,
+        "fe": 2.7,
+    },
+    "중학_남": {
+        "kcal": 840,
+        "prot": 20.0,
+        "vitA": 177,
+        "vitC": 23.4,
+        "ca": 267,
+        "fe": 3.7,
+    },
+    "중학_여": {
+        "kcal": 670,
+        "prot": 18.4,
+        "vitA": 160,
+        "vitC": 23.4,
+        "ca": 250,
+        "fe": 4.0,
+    },
+    "고등_남": {
+        "kcal": 900,
+        "prot": 21.7,
+        "vitA": 207,
+        "vitC": 26.7,
+        "ca": 250,
+        "fe": 3.7,
+    },
+    "고등_여": {
+        "kcal": 670,
+        "prot": 18.4,
+        "vitA": 150,
+        "vitC": 26.7,
+        "ca": 234,
+        "fe": 3.7,
+    },
+}
+
+# Spring ENUM → Python 영양 기준 키 매핑
+NUTRITION_KEY_MAPPING = {
+    # 초등학교
+    "ELEMENTARY": "초등_평균",
+    # 중학교
+    "MIDDLE_MALE": "중학_남",
+    "MIDDLE_FEMALE": "중학_여",
+    "MIDDLE_COED": "중학_공학",
+    # 고등학교
+    "HIGH_MALE": "고등_남",
+    "HIGH_FEMALE": "고등_여",
+    "HIGH_COED": "고등_공학",
+}
+
+
+def get_nutrition_standard(nutrition_key: str = None) -> dict:
+    """
+    nutrition_key에 따른 영양 기준 반환
+
+    Args:
+        nutrition_key: Spring ENUM 값 (ELEMENTARY, MIDDLE_MALE, etc.)
+
+    Returns:
+        영양 기준 딕셔너리 {"kcal": ..., "prot": ..., ...}
+    """
+    if not nutrition_key:
+        # 기본값: 고등_남
+        return NUTRITION_STANDARDS_DB["고등_남"]
+
+    key = nutrition_key.upper()
+
+    # 초등학교: 남자 4~6학년 값 사용
+    if key == "ELEMENTARY":
+        return NUTRITION_STANDARDS_DB["초등"]
+
+    # 중학교
+    if key == "MIDDLE_MALE":
+        return NUTRITION_STANDARDS_DB["중학_남"]
+
+    if key == "MIDDLE_FEMALE":
+        return NUTRITION_STANDARDS_DB["중학_여"]
+
+    # 남녀공학 중학교: 남자 값 사용
+    if key == "MIDDLE_COED":
+        return NUTRITION_STANDARDS_DB["중학_남"]
+
+    # 고등학교
+    if key == "HIGH_MALE":
+        return NUTRITION_STANDARDS_DB["고등_남"]
+
+    if key == "HIGH_FEMALE":
+        return NUTRITION_STANDARDS_DB["고등_여"]
+
+    # 남녀공학 고등학교: 남자 값 사용
+    if key == "HIGH_COED":
+        return NUTRITION_STANDARDS_DB["고등_남"]
+
+    # 알 수 없는 키: 기본값
+    return NUTRITION_STANDARDS_DB["고등_남"]
+
+
+# 기본 영양 기준 (하위 호환용)
 STD_KCAL = float(os.getenv("STD_KCAL", "900.0"))
 STD_PROT = float(os.getenv("STD_PROT", "25.0"))
+
+# 칼로리 허용 오차 비율
+KCAL_TOLERANCE_RATIO = 0.10
