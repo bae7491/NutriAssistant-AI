@@ -1,6 +1,16 @@
-# Python virtual environment
+# Python virtual environment (가상환경 폴더 이름과 똑같아야 함)
+venv/
 .venv/
+env/
 
 # Environment variables
 .env
 .env.*
+
+# Python cache (이것도 꼭 넣어야 깔끔합니다)
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+Thumbs.db
