@@ -103,7 +103,9 @@ class NewMenuInput(BaseModel):
     riboflavin: float = Field(default=0, description="리보플라빈/비타민B2(mg)")
     vitamin_c: float = Field(default=0, description="비타민C(mg)")
     ingredients: Optional[str] = Field(default=None, description="재료 목록")
-    allergy_info: Optional[str] = Field(default=None, description="알레르기 정보 (예: 1, 2, 5, 6)")
+    allergy_info: Optional[str] = Field(
+        default=None, description="알레르기 정보 (예: 1, 2, 5, 6)"
+    )
     recipe: Optional[str] = Field(default=None, description="레시피")
 
     model_config = ConfigDict(
@@ -547,16 +549,20 @@ class NewMenuGenerationResponse(BaseModel):
 # [NEW] 월간 운영 자료 (MonthlyOpsDoc) 관련 스키마
 # ==============================================================================
 
+
 class ReportFile(BaseModel):
     """보고서 내 파일 정보"""
+
     id: int
     file_name: str
     file_type: str
     s3_path: str
     created_at: str
 
+
 class MonthlyOpsDocData(BaseModel):
     """월간 운영 자료 핵심 데이터"""
+
     id: int
     school_id: int
     title: str
@@ -564,38 +570,51 @@ class MonthlyOpsDocData(BaseModel):
     month: int
     status: str
     created_at: str
-    files: Optional[List[ReportFile]] = Field(default=None, description="상세 조회 시 포함")
+    files: Optional[List[ReportFile]] = Field(
+        default=None, description="상세 조회 시 포함"
+    )
+
 
 class MonthlyOpsDocCreateRequest(BaseModel):
     """생성 요청 (POST)"""
+
     school_id: int
     year: int
     month: int
 
+
 class MonthlyOpsDocCreateResponse(BaseModel):
     """생성 응답 (POST)"""
+
     status: str
     message: str
     data: MonthlyOpsDocData
 
+
 class PaginationInfo(BaseModel):
     """페이지네이션 정보"""
+
     current_page: int
     total_pages: int
     total_items: int
     page_size: int
+
 
 # ✅ [개선] 목록 조회 시 data 내부 구조를 명시적으로 정의 (Swagger 문서를 위해)
 class MonthlyOpsDocListData(BaseModel):
     reports: List[MonthlyOpsDocData]
     pagination: PaginationInfo
 
+
 class MonthlyOpsDocListResponse(BaseModel):
     """목록 조회 응답 (GET)"""
+
     status: str
     data: MonthlyOpsDocListData
 
+
 class MonthlyOpsDocDetailResponse(BaseModel):
     """상세 조회 응답 (GET)"""
+
     status: str
     data: MonthlyOpsDocData

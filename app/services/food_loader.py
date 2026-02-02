@@ -351,7 +351,9 @@ def load_spring_and_build_context() -> None:
 
     # 디저트 풀 분리 (알레르기 정보 포함)
     dessert_mask = merged["category"].astype(str).str.strip().isin(DESSERT_CATEGORIES)
-    dessert_df = merged.loc[dessert_mask, ["menuName", "allergy"]].dropna(subset=["menuName"])
+    dessert_df = merged.loc[dessert_mask, ["menuName", "allergy"]].dropna(
+        subset=["menuName"]
+    )
     dessert_df["menuName"] = dessert_df["menuName"].astype(str).str.strip()
     dessert_df["allergy"] = dessert_df["allergy"].fillna("").astype(str)
 

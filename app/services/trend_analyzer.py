@@ -82,7 +82,9 @@ class TrendAnalyzer:
             return []
 
         if not self.client_id or not self.client_secret:
-            logger.warning("네이버 API 키가 설정되지 않았습니다. 샘플 데이터를 반환합니다.")
+            logger.warning(
+                "네이버 API 키가 설정되지 않았습니다. 샘플 데이터를 반환합니다."
+            )
             return self._get_sample_trends()
 
         end_date = datetime.now()
@@ -173,9 +175,7 @@ class TrendAnalyzer:
         """
         # 1단계: 재료 키워드 제외
         filtered = [
-            kw
-            for kw in keywords
-            if not any(ing in kw for ing in INGREDIENT_KEYWORDS)
+            kw for kw in keywords if not any(ing in kw for ing in INGREDIENT_KEYWORDS)
         ]
 
         if not filtered:

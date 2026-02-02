@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-__list__ = [
-    'SentimentAspectDetail',
-    'ReviewAnalysis',
-    'PostAnalysis'
-]
+__list__ = ["SentimentAspectDetail", "ReviewAnalysis", "PostAnalysis"]
 
 from datetime import date, datetime
 from typing import Dict, List, Optional
@@ -16,13 +12,16 @@ class SentimentAspectDetail(BaseModel):
     """
     감정분석 내용 (세부)
     """
+
     polarity: str
     hint: str
+
 
 class ReviewAnalysis(BaseModel):
     """
     감정분석 결과 (게시글)
     """
+
     review_id: str
     meal_type: str
     rating_5: float
@@ -35,10 +34,12 @@ class ReviewAnalysis(BaseModel):
     evidence_phrases: Optional[List[str]] = None
     issue_flags: Optional[List[str]] = None
 
+
 class PostAnalysis(BaseModel):
     """
     감정분석 결과 (글)
     """
+
     post_id: str
     category: str
     sentiment_label: str

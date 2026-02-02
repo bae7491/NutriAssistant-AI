@@ -21,7 +21,7 @@ from app.models.strategies import (
 NUTRI_STANDARDS = {
     "초등(4~6)": {"energy_kcal": 670, "protein_g": 16.7},
     "중학생": {"energy_kcal": 840, "protein_g": 20.0},
-    "고등학생": {"energy_kcal": 900, "protein_g": 21.7}
+    "고등학생": {"energy_kcal": 900, "protein_g": 21.7},
 }
 
 ENERGY_RATIO_STANDARDS = {
@@ -32,19 +32,21 @@ ENERGY_RATIO_STANDARDS = {
 
 
 def _generate_plan(
-        llm,
-        point,
-        nutrition_compliance,
-        quality_scorecard,
-        risk_forecast
+    llm, point, nutrition_compliance, quality_scorecard, risk_forecast
 ) -> dict[str, str]:
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
 (Response Language: {response_lang})
 
 당신은 급식 운영 데이터를 해석하는 전문가입니다.
-"""),
-        ("human", """
+""",
+            ),
+            (
+                "human",
+                """
 다음은 기간 내 제기된 급식 메뉴 운영 상의 문제 혹은 약점과 그에 대한 정보입니다.
  
 (지적사항)
@@ -72,20 +74,23 @@ def _generate_plan(
 
 <주의>
 * 각 사항은 간결하게 한 문장으로 작성합니다.
-""")])
+""",
+            ),
+        ]
+    )
     message = prompt.format_messages(
         response_lang="Korean",
         point=point,
         nutrition_compliance=nutrition_compliance,
         quality_scorecard=quality_scorecard,
-        risk_forecast=risk_forecast
+        risk_forecast=risk_forecast,
     )
     try:
         response = llm.invoke(message).content.strip()
         return json.loads(response)
     except Exception as e:
         print(f"[EXCEPTION] {e}")
-        return {"trigger":"", "adjustment":"", "howToApply":[]}
+        return {"trigger": "", "adjustment": "", "howToApply": []}
 
 
 def convert_meal_plan_to_df(meal_plan: List[dict]) -> pd.DataFrame:
@@ -160,13 +165,15 @@ def convert_review_analysis_to_df(review_analysis: List[dict]) -> pd.DataFrame:
 
 
 def merge_master_table(
-        meal_plan_df: pd.DataFrame,
-        daily_info_df: pd.DataFrame,
-        daily_analysis_df: Optional[pd.DataFrame] = None,
+    meal_plan_df: pd.DataFrame,
+    daily_info_df: pd.DataFrame,
+    daily_analysis_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Merge meal plan, daily info, and daily analysis."""
     master = meal_plan_df.merge(
-        daily_info_df[["Date", "meal_type", "served_count", "leftover_kg", "leftover_rate"]],
+        daily_info_df[
+            ["Date", "meal_type", "served_count", "leftover_kg", "leftover_rate"]
+        ],
         on=["Date", "meal_type"],
         how="left",
     )
@@ -174,7 +181,15 @@ def merge_master_table(
     if daily_analysis_df is not None and len(daily_analysis_df) > 0:
         master = master.merge(
             daily_analysis_df[
-                ["Date", "meal_type", "avg_rating", "avg_sentiment", "review_count", "top_negative_aspects", "top_issues"]
+                [
+                    "Date",
+                    "meal_type",
+                    "avg_rating",
+                    "avg_sentiment",
+                    "review_count",
+                    "top_negative_aspects",
+                    "top_issues",
+                ]
             ],
             on=["Date", "meal_type"],
             how="left",
@@ -188,39 +203,63 @@ def merge_master_table(
 
 
 def analyze_nutrition_compliance(
-        master:pd.DataFrame, target_group:str=""
+    master: pd.DataFrame, target_group: str = ""
 ) -> NutritionCompliance:
     """Analyze nutrition compliance."""
-    standards = NUTRI_STANDARDS.get(target_group, {"energy_kcal": 900, "protein_g": 21.7})
+    standards = NUTRI_STANDARDS.get(
+        target_group, {"energy_kcal": 900, "protein_g": 21.7}
+    )
     E0 = standards["energy_kcal"]
     P0 = standards["protein_g"]
 
     master["energy_ok"] = master["Kcal"].between(E0 * 0.9, E0 * 1.1)
     master["protein_ok"] = master["Prot"] >= P0
-    master["protein_energy_ratio"] = (master["Prot"] * 4) / master["Kcal"].replace(0, np.nan)
+    master["protein_energy_ratio"] = (master["Prot"] * 4) / master["Kcal"].replace(
+        0, np.nan
+    )
     master["protein_ratio_ok"] = master["protein_energy_ratio"] <= 0.20
-    master["carb_energy_ratio"] = (master["Carb"] * 4) / master["Kcal"].replace(0, np.nan)
+    master["carb_energy_ratio"] = (master["Carb"] * 4) / master["Kcal"].replace(
+        0, np.nan
+    )
     master["carb_ratio_ok"] = master["carb_energy_ratio"].between(0.55, 0.65)
     master["fat_energy_ratio"] = (master["Fat"] * 9) / master["Kcal"].replace(0, np.nan)
     master["fat_ratio_ok"] = master["fat_energy_ratio"].between(0.15, 0.30)
 
     master["nutri_compliance_ok"] = (
-            master["energy_ok"]
-            & master["protein_ok"]
-            & master["protein_ratio_ok"]
-            & master["carb_ratio_ok"]
-            & master["fat_ratio_ok"]
+        master["energy_ok"]
+        & master["protein_ok"]
+        & master["protein_ratio_ok"]
+        & master["carb_ratio_ok"]
+        & master["fat_ratio_ok"]
     )
 
     total_meals = len(master)
 
     compliance = {
-        "energy": {"count": int(master["energy_ok"].sum()), "rate": round(master["energy_ok"].mean() * 100, 1)},
-        "protein": {"count": int(master["protein_ok"].sum()), "rate": round(master["protein_ok"].mean() * 100, 1)},
-        "protein_ratio": {"count": int(master["protein_ratio_ok"].sum()), "rate": round(master["protein_ratio_ok"].mean() * 100, 1)},
-        "carb_ratio": {"count": int(master["carb_ratio_ok"].sum()), "rate": round(master["carb_ratio_ok"].mean() * 100, 1)},
-        "fat_ratio": {"count": int(master["fat_ratio_ok"].sum()), "rate": round(master["fat_ratio_ok"].mean() * 100, 1)},
-        "all": {"count": int(master["nutri_compliance_ok"].sum()), "rate": round(master["nutri_compliance_ok"].mean() * 100, 1)},
+        "energy": {
+            "count": int(master["energy_ok"].sum()),
+            "rate": round(master["energy_ok"].mean() * 100, 1),
+        },
+        "protein": {
+            "count": int(master["protein_ok"].sum()),
+            "rate": round(master["protein_ok"].mean() * 100, 1),
+        },
+        "protein_ratio": {
+            "count": int(master["protein_ratio_ok"].sum()),
+            "rate": round(master["protein_ratio_ok"].mean() * 100, 1),
+        },
+        "carb_ratio": {
+            "count": int(master["carb_ratio_ok"].sum()),
+            "rate": round(master["carb_ratio_ok"].mean() * 100, 1),
+        },
+        "fat_ratio": {
+            "count": int(master["fat_ratio_ok"].sum()),
+            "rate": round(master["fat_ratio_ok"].mean() * 100, 1),
+        },
+        "all": {
+            "count": int(master["nutri_compliance_ok"].sum()),
+            "rate": round(master["nutri_compliance_ok"].mean() * 100, 1),
+        },
     }
 
     failed_meals = master[master["nutri_compliance_ok"] == False].copy()
@@ -247,9 +286,11 @@ def analyze_nutrition_compliance(
 
     master["weekday"] = master["Date"].dt.dayofweek
     weekday_names = ["월", "화", "수", "목", "금", "토", "일"]
-    weekday_stats = master.groupby("weekday").agg(
-        total=("nutri_compliance_ok", "count"), ok=("nutri_compliance_ok", "sum")
-    ).reset_index()
+    weekday_stats = (
+        master.groupby("weekday")
+        .agg(total=("nutri_compliance_ok", "count"), ok=("nutri_compliance_ok", "sum"))
+        .reset_index()
+    )
     weekday_compliance = {}
     for _, row in weekday_stats.iterrows():
         day_name = weekday_names[int(row["weekday"])]
@@ -289,9 +330,9 @@ def get_grade(score: float) -> Tuple[str, str]:
 
 
 def analyze_quality_scorecard(
-        master: pd.DataFrame,
-        meal_plan_df: pd.DataFrame,
-        has_nutrition: bool = True,
+    master: pd.DataFrame,
+    meal_plan_df: pd.DataFrame,
+    has_nutrition: bool = True,
 ) -> QualityScorecard:
     """Analyze quality scorecard."""
     if has_nutrition and "nutri_compliance_ok" in master.columns:
@@ -328,15 +369,25 @@ def analyze_quality_scorecard(
         unique_menus = 0
 
     if has_nutrition:
-        weights = {"nutrition": 0.25, "satisfaction": 0.30, "leftover": 0.30, "diversity": 0.15}
+        weights = {
+            "nutrition": 0.25,
+            "satisfaction": 0.30,
+            "leftover": 0.30,
+            "diversity": 0.15,
+        }
     else:
-        weights = {"nutrition": 0.0, "satisfaction": 0.40, "leftover": 0.40, "diversity": 0.20}
+        weights = {
+            "nutrition": 0.0,
+            "satisfaction": 0.40,
+            "leftover": 0.40,
+            "diversity": 0.20,
+        }
 
     total_score = (
-            nutri_score * weights["nutrition"]
-            + satisfaction_score * weights["satisfaction"]
-            + leftover_score * weights["leftover"]
-            + diversity_score * weights["diversity"]
+        nutri_score * weights["nutrition"]
+        + satisfaction_score * weights["satisfaction"]
+        + leftover_score * weights["leftover"]
+        + diversity_score * weights["diversity"]
     )
 
     grade, _ = get_grade(total_score)
@@ -425,7 +476,9 @@ def predict_risk(master: pd.DataFrame, model, feature_cols: List[str]) -> pd.Dat
     """Predict leftover risk."""
     X = master[feature_cols].fillna(master[feature_cols].median())
     master["risk_prob"] = model.predict_proba(X)[:, 1]
-    master["risk_label"] = (master["risk_prob"] >= 0.5).map({True: "고위험", False: "저위험"})
+    master["risk_label"] = (master["risk_prob"] >= 0.5).map(
+        {True: "고위험", False: "저위험"}
+    )
     return master
 
 
@@ -433,7 +486,9 @@ def analyze_risk_forecast(master: pd.DataFrame) -> RiskForecast:
     """Analyze leftover risk forecast."""
     result = train_risk_model(master.copy())
     if result is None:
-        return RiskForecast(avgRisk=0.0, highRiskRatio=0.0, highRiskCount=0, highRiskMeals=[])
+        return RiskForecast(
+            avgRisk=0.0, highRiskRatio=0.0, highRiskCount=0, highRiskMeals=[]
+        )
 
     model, feature_cols = result
     master = predict_risk(master, model, feature_cols)
@@ -463,11 +518,11 @@ def analyze_risk_forecast(master: pd.DataFrame) -> RiskForecast:
 
 
 def generate_menu_strategies(
-        nutrition_compliance: NutritionCompliance,
-        quality_scorecard: QualityScorecard,
-        risk_forecast: RiskForecast,
-        llm,
-        trend_analysis: Optional[object] = None,
+    nutrition_compliance: NutritionCompliance,
+    quality_scorecard: QualityScorecard,
+    risk_forecast: RiskForecast,
+    llm,
+    trend_analysis: Optional[object] = None,
 ) -> List[MenuStrategyItem]:
     """Generate menu strategies."""
     strategies = []
@@ -490,30 +545,28 @@ def generate_menu_strategies(
                         targetCategory=f"영양기준({issue_name})",
                         negativeRatio=100 - data["rate"],
                         priority="high" if data["rate"] < 70 else "medium",
-                        topIssues=[f"{issue_name} 기준 미충족 {100 - data['rate']:.1f}%"],
+                        topIssues=[
+                            f"{issue_name} 기준 미충족 {100 - data['rate']:.1f}%"
+                        ],
                         description=f"{issue_name} 기준 충족률이 {data['rate']}%로 낮습니다. 개선이 필요합니다.",
                     )
                 )
 
     for point in quality_scorecard.improvePoints:
         plan = _generate_plan(
-            llm,
-            point,
-            nutrition_compliance,
-            quality_scorecard,
-            risk_forecast
+            llm, point, nutrition_compliance, quality_scorecard, risk_forecast
         )
         print(point)
         print(plan)
-        trigger:str = plan.get("trigger", "")
-        adjustment:str = plan.get("adjustment", "")
-        howToApply:list[str] = plan.get("howToApply", [])
+        trigger: str = plan.get("trigger", "")
+        adjustment: str = plan.get("adjustment", "")
+        howToApply: list[str] = plan.get("howToApply", [])
         strategies.append(
             MenuStrategyItem(
                 strategyType="policy_update",
                 trigger=trigger,
                 adjustment=adjustment,
-                howToApply=howToApply
+                howToApply=howToApply,
             )
         )
 
@@ -653,7 +706,9 @@ def _normalize_daily_report_df(df_daily_report: pd.DataFrame) -> pd.DataFrame:
     df["avg_rating"] = _pick_col(["avg_rating", "kpis.avg_rating_5", "avg_rating_5"], 0)
     df["avg_sentiment"] = _pick_col(["avg_sentiment", "kpis.avg_review_sentiment"], 0)
     df["review_count"] = _pick_col(["review_count", "kpis.review_count"], 0)
-    df["top_negative_aspects"] = _pick_col(["top_negative_aspects"], [[] for _ in range(len(df))])
+    df["top_negative_aspects"] = _pick_col(
+        ["top_negative_aspects"], [[] for _ in range(len(df))]
+    )
     df["top_issues"] = _pick_col(["top_issues"], [[] for _ in range(len(df))])
 
     return df
@@ -662,6 +717,7 @@ def _normalize_daily_report_df(df_daily_report: pd.DataFrame) -> pd.DataFrame:
 # ============================================================
 # 통합 분석 함수 (팀 통일 스키마)
 # ============================================================
+
 
 def run_menu_strategy_analysis(request: dict) -> MenuStrategyResponse:
     """모델5 통합 분석 실행"""
@@ -675,7 +731,7 @@ def run_menu_strategy_analysis(request: dict) -> MenuStrategyResponse:
 
     print(f"📊 분석 시작: {user_name}님의 {target_month} 데이터")
 
-    #print(request)
+    # print(request)
 
     # 1. 데이터 변환
     meal_plan_df = convert_meal_plan_to_df(request["mealPlan"])
@@ -719,8 +775,8 @@ def run_menu_strategy_analysis(request: dict) -> MenuStrategyResponse:
         nutrition_compliance=nutrition_compliance,
         quality_scorecard=quality_scorecard,
         risk_forecast=risk_forecast,
-        llm=request.get('llm', None),
-        trend_analysis=request.get("trendAnalysis")
+        llm=request.get("llm", None),
+        trend_analysis=request.get("trendAnalysis"),
     )
     print(f"  - 전략 {len(menu_strategies)}개 생성")
 
@@ -729,5 +785,5 @@ def run_menu_strategy_analysis(request: dict) -> MenuStrategyResponse:
         nutritionCompliance=nutrition_compliance,
         qualityScorecard=quality_scorecard,
         riskForecast=risk_forecast,
-        menuStrategies=menu_strategies
+        menuStrategies=menu_strategies,
     )

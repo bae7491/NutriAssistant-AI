@@ -71,7 +71,9 @@ class BoardAnalyzer:
             self.openai_client = OpenAI(api_key=api_key)
         else:
             self.openai_client = None
-            logger.warning("OPENAI_API_KEY가 설정되지 않았습니다. 패턴 기반 추출만 사용합니다.")
+            logger.warning(
+                "OPENAI_API_KEY가 설정되지 않았습니다. 패턴 기반 추출만 사용합니다."
+            )
 
         self.model = "gpt-5-mini"
 
@@ -126,7 +128,9 @@ class BoardAnalyzer:
                     f"Spring 서버에 {SPRING_BOARD_API} 구현 필요. 샘플 데이터를 반환합니다."
                 )
             else:
-                logger.warning(f"게시판 API HTTP 에러 ({e.response.status_code}). 샘플 데이터를 반환합니다.")
+                logger.warning(
+                    f"게시판 API HTTP 에러 ({e.response.status_code}). 샘플 데이터를 반환합니다."
+                )
             return self._get_sample_feedback()
         except Exception as e:
             logger.error(f"게시판 API 호출 실패: {e}")
@@ -256,7 +260,9 @@ class BoardAnalyzer:
 
         return list(set(standardized))
 
-    async def extract_menus_with_llm(self, feedback_list: List[Dict[str, Any]]) -> List[str]:
+    async def extract_menus_with_llm(
+        self, feedback_list: List[Dict[str, Any]]
+    ) -> List[str]:
         """
         LLM을 사용하여 게시글 목록에서 메뉴명 일괄 추출
 

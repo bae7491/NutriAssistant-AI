@@ -16,6 +16,7 @@ class MonthlyReportRequestPayload(BaseModel):
     """
     [월간 분석 요청 내용]
     """
+
     userName: str
     year: int
     month: int
@@ -28,25 +29,31 @@ class MonthlyReportRequestPayload(BaseModel):
     dailyInfo: Optional[list[DailyInfo]] = None
     dailyAnalyses: Optional[List[DailyAnalysis]] = None
 
+
 class PeriodicReportMetadata(BaseModel):
     """
     [월간 분석 결과 - 메타데이터]
     """
-    apiVersion:int = 1
-    generatedAt:datetime = datetime.now().isoformat()
+
+    apiVersion: int = 1
+    generatedAt: datetime = datetime.now().isoformat()
+
 
 class PeriodicReportData(BaseModel):
     """
     [월간 분석 결과 - 데이터 부분]
     """
+
     periodicAnalysis: PeriodicAnalysisResult
     trendAnalysis: TrendAnalysisResult
     menuStrategy: MenuStrategyResponse
+
 
 class PeriodicReportDoc(BaseModel):
     """
     [월간 분석 결과 - 문서 부분]
     """
+
     summary: str = ""
     leftover: str = ""
     satisfaction: str = ""
@@ -55,11 +62,13 @@ class PeriodicReportDoc(BaseModel):
     menuStrategies: str = ""
     opStrategies: str = ""
 
+
 class MonthlyReport(BaseModel):
     """
     [월간 분석 결과]
     * 최종적으로 Response로서 리턴될 값
     """
+
     userName: str = "(NO_USERNAME)"
     year: int = 1
     month: int = 1

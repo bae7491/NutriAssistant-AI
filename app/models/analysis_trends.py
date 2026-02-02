@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-__list__=[
-    'CategorySentiment',
-    'PreferenceChange',
-    'ComplaintTagChange',
-    'ProblemCategory',
-    'PreferredCategory',
-    'CategoryComplaint',
-    'TrendAnalysisResult'
+__list__ = [
+    "CategorySentiment",
+    "PreferenceChange",
+    "ComplaintTagChange",
+    "ProblemCategory",
+    "PreferredCategory",
+    "CategoryComplaint",
+    "TrendAnalysisResult",
 ]
 
 from typing import Dict, List, Optional
@@ -17,41 +17,54 @@ from pydantic import BaseModel
 
 class CategorySentiment(BaseModel):
     """카테고리별 감정 분포"""
+
     category: str
     pos_ratio: float
     neu_ratio: float
     neg_ratio: float
     count: int
 
+
 class PreferenceChange(BaseModel):
     """카테고리 선호도 변화"""
+
     category: str
     direction: str  # "increase" or "decrease"
     change_percent: float
+
 
 class ComplaintTagChange(BaseModel):
     """불만 태그 변화"""
+
     tag: str
     direction: str  # "increase" or "decrease"
     change_percent: float
 
+
 class ProblemCategory(BaseModel):
     """문제 카테고리"""
+
     category: str
     neg_ratio: float
 
+
 class PreferredCategory(BaseModel):
     """선호 카테고리"""
+
     category: str
     pos_ratio: float
 
+
 class CategoryComplaint(BaseModel):
     """카테고리별 불만 태그"""
+
     tag: str
     count: int
 
+
 class TrendAnalysisResult(BaseModel):
     """트렌드 분석 최종 결과"""
+
     # 분석 정보
     period_start: str
     period_end: str

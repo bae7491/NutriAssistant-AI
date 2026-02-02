@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 __list__ = [
-    'Review',
-    'Post',
-    'MealPlanItem',
-    'DailyInfo',
-    'DailyAnalysisKpis',
-    'DailyAnalysisDistributions',
-    'DailyTopAspect',
-    'DailyTopNegativeAspect',
-    'DailyAnalysis'
+    "Review",
+    "Post",
+    "MealPlanItem",
+    "DailyInfo",
+    "DailyAnalysisKpis",
+    "DailyAnalysisDistributions",
+    "DailyTopAspect",
+    "DailyTopNegativeAspect",
+    "DailyAnalysis",
 ]
 
 from datetime import date, datetime
@@ -22,21 +22,25 @@ class Review(BaseModel):
     """
     [운영 데이터] (식사) 리뷰
     """
+
     reviewId: str
     date: date
     mealType: str
     rating: float
     content: str
 
+
 class Post(BaseModel):
     """
     [운영 데이터] 게시글
     """
+
     postId: str
     date: date
     category: str
     title: str
     content: str
+
 
 class MealPlanItem(BaseModel):
     date: str
@@ -53,12 +57,14 @@ class MealPlanItem(BaseModel):
     carb: Optional[float] = None
     fat: Optional[float] = None
 
+
 class DailyInfo(BaseModel):
     date: date
     mealType: str
     servedProxy: int
     missedProxy: Optional[int] = None
     leftoverKg: float
+
 
 class DailyAnalysisKpis(BaseModel):
     review_count: int = 0
@@ -68,20 +74,24 @@ class DailyAnalysisKpis(BaseModel):
     avg_post_sentiment: float = 0.0
     overall_sentiment: float = 0.0
 
+
 class DailyAnalysisDistributions(BaseModel):
     reviews: Dict[str, int]
     posts: Dict[str, int]
     post_categories: Dict[str, int]
+
 
 class DailyTopAspect(BaseModel):
     tag: str
     count: int
     polarity: str
 
+
 class DailyTopNegativeAspect(BaseModel):
     tag: str
     negative_rate: float
     counts: Dict[str, int]
+
 
 class DailyAnalysis(BaseModel):
     date: date
