@@ -34,7 +34,7 @@ async def create_monthly_ops_doc(
             year=payload.year,
             month=payload.month,
             school_id=payload.school_id,
-            user_name="Administrator"
+            userName="Administrator"  # ✅ 수정: user_name → userName
         )
 
         # 2. AI 분석 실행 (오래 걸릴 수 있음)
