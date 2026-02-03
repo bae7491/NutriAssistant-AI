@@ -3,9 +3,12 @@ venv/
 .venv/
 env/
 
-# Environment variables
+# Environment variables (실제 키가 담긴 파일)
 .env
-.env.*
+.env.local
+.env.production
+
+# .env_example은 추적 (팀원 참고용)
 
 # Python cache (이것도 꼭 넣어야 깔끔합니다)
 __pycache__/
