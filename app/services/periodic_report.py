@@ -144,9 +144,9 @@ def generate_periodic_report(payload: MonthlyReportRequestPayload):
     df_meal_plans = pd.DataFrame(payload_dict.get("mealPlan", []))
 
     if not df_meal_plans.empty:
-        df_meal_plans["mealType"] = df_meal_plans["mealType"].map(
-            {"중식": "LUNCH", "석식": "DINNER"}
-        )
+        # mealType 정규화 (중식/석식 → LUNCH/DINNER, 이미 LUNCH/DINNER면 유지)
+        meal_type_map = {"중식": "LUNCH", "석식": "DINNER", "LUNCH": "LUNCH", "DINNER": "DINNER"}
+        df_meal_plans["mealType"] = df_meal_plans["mealType"].map(meal_type_map)
         for colname in ["rice", "soup", "main1", "main2", "side", "dessert", "kimchi"]:
             if colname in df_meal_plans.columns:
                 df_meal_plans[colname] = df_meal_plans[colname].fillna("-")
@@ -163,9 +163,9 @@ def generate_periodic_report(payload: MonthlyReportRequestPayload):
     df_daily_info = pd.DataFrame(payload_dict.get("dailyInfo", []))
 
     if not df_daily_info.empty:
-        df_daily_info["mealType"] = df_daily_info["mealType"].map(
-            {"중식": "LUNCH", "석식": "DINNER"}
-        )
+        # mealType 정규화 (중식/석식 → LUNCH/DINNER, 이미 LUNCH/DINNER면 유지)
+        meal_type_map = {"중식": "LUNCH", "석식": "DINNER", "LUNCH": "LUNCH", "DINNER": "DINNER"}
+        df_daily_info["mealType"] = df_daily_info["mealType"].map(meal_type_map)
         print(f"   ✅ 일일 운영정보: {len(df_daily_info)}건")
     else:
         print("   ⚠️  일일 운영정보 없음")
@@ -178,7 +178,9 @@ def generate_periodic_report(payload: MonthlyReportRequestPayload):
     reviews = pd.DataFrame(payload_dict.get("reviews", []))
 
     if not reviews.empty:
-        reviews["mealType"] = reviews["mealType"].map({"중식": "LUNCH", "석식": "DINNER"})
+        # mealType 정규화 (중식/석식 → LUNCH/DINNER, 이미 LUNCH/DINNER면 유지)
+        meal_type_map = {"중식": "LUNCH", "석식": "DINNER", "LUNCH": "LUNCH", "DINNER": "DINNER"}
+        reviews["mealType"] = reviews["mealType"].map(meal_type_map)
         reviews["date"] = pd.to_datetime(reviews["date"])
         reviews["review_id"] = (
                 "R"

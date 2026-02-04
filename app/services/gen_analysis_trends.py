@@ -65,7 +65,7 @@ def map_menu_to_category(
     df_meal_plans: pd.DataFrame,
     df_food_db: pd.DataFrame,
     menu_col: str = "menu_key",
-    category_col: str = "식품대분류명",
+    category_col: str = "category",
 ) -> pd.DataFrame:
     """
     리뷰 데이터에 메뉴 카테고리를 매핑
@@ -73,7 +73,7 @@ def map_menu_to_category(
     Args:
         df_reviews: 리뷰 데이터 (Date, meal_type 포함)
         df_meal_plans: 식단표 (Date, meal_type, menu_key 포함)
-        df_food_db: 음식 DB (음식명, 식품대분류명 포함)
+        df_food_db: 음식 DB (menuName, category 포함)
 
     Returns:
         trend_df: 카테고리가 매핑된 분석용 DataFrame
@@ -101,8 +101,7 @@ def map_menu_to_category(
 
     # 4) 음식 DB 준비
     food_db = df_food_db.copy()
-    # food_db["db_key"] = food_db["음식명"].apply(norm_light)
-    food_db["db_key"] = food_db["식품명"].apply(norm_light)
+    food_db["db_key"] = food_db["menuName"].apply(norm_light)
 
     # 5) 매핑
     df_merged = df_exploded.merge(
@@ -488,6 +487,23 @@ def run_trend_analysis(
         TrendAnalysisResult
     """
     # --------------------------------------------------------
+    # 0) 빈 데이터 처리
+    # --------------------------------------------------------
+    if df_sentiments_reviews.empty:
+        return TrendAnalysisResult(
+            period_start=None,
+            period_end=None,
+            total_records=0,
+            weekly_neg_trend={},
+            category_sentiment_distribution=[],
+            preference_changes=[],
+            complaint_tag_changes=[],
+            problem_categories=[],
+            preferred_categories=[],
+            category_complaints={},
+        )
+
+    # --------------------------------------------------------
     # 1) 데이터 전처리
     # --------------------------------------------------------
     df = df_sentiments_reviews.copy()
@@ -581,9 +597,16 @@ def run_trend_analysis(
     # --------------------------------------------------------
     # 6) 결과 생성
     # --------------------------------------------------------
+    # 빈 데이터 또는 날짜 없는 경우 처리
+    date_min = trend_df["Date"].min() if not trend_df.empty else None
+    date_max = trend_df["Date"].max() if not trend_df.empty else None
+
+    period_start = date_min.strftime("%Y-%m-%d") if pd.notna(date_min) else None
+    period_end = date_max.strftime("%Y-%m-%d") if pd.notna(date_max) else None
+
     result = TrendAnalysisResult(
-        period_start=trend_df["Date"].min().strftime("%Y-%m-%d"),
-        period_end=trend_df["Date"].max().strftime("%Y-%m-%d"),
+        period_start=period_start,
+        period_end=period_end,
         total_records=len(trend_df),
         weekly_neg_trend=weekly_neg,
         category_sentiment_distribution=category_sentiments,

@@ -59,7 +59,7 @@ class MenuStrategyItem(BaseModel):
 
 class MenuStrategyResponse(BaseModel):
     #    meta: Dict[str, Any]
-    nutritionCompliance: NutritionCompliance
-    qualityScorecard: QualityScorecard
-    riskForecast: RiskForecast
+    nutritionCompliance: Optional[NutritionCompliance] = None
+    qualityScorecard: Optional[QualityScorecard] = None
+    riskForecast: Optional[RiskForecast] = None
     menuStrategies: List[MenuStrategyItem] = []

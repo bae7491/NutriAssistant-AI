@@ -17,9 +17,10 @@ class MonthlyReportRequestPayload(BaseModel):
     [월간 분석 요청 내용]
     """
 
-    userName: str
+    userName: str = "Administrator"
     year: int
     month: int
+    school_id: Optional[int] = None
     targetGroup: Optional[str] = ""
     mealPlan: Optional[List[MealPlanItem]] = None
     reviews: Optional[List[Review]] = None

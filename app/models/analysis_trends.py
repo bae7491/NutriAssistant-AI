@@ -66,9 +66,9 @@ class TrendAnalysisResult(BaseModel):
     """트렌드 분석 최종 결과"""
 
     # 분석 정보
-    period_start: str
-    period_end: str
-    total_records: int
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    total_records: int = 0
 
     # 주차별 부정 비율
     weekly_neg_trend: Dict[int, float]
