@@ -1,7 +1,11 @@
 import os
+from dotenv import load_dotenv
 
-# 내부 토큰(선택): Spring에서만 호출하게 하고 싶으면 사용
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "")  # 비우면 검사 안 함
+# .env 파일 로드
+load_dotenv()
+
+# Internal API Key: Spring Boot 내부 API 호출용 (양방향 통신)
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY", "")
 
 # Spring 내부 API (예: http://localhost:8080/internal/food)
 # 통합 음식 DB 제공 API 엔드포인트

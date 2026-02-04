@@ -17,7 +17,7 @@ from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
 
 from app.core.config import (
-    INTERNAL_TOKEN,
+    INTERNAL_API_KEY,
     SPRING_BOARD_API,
     SPRING_TIMEOUT_SECONDS,
 )
@@ -91,8 +91,8 @@ class BoardAnalyzer:
             게시판 데이터 리스트
         """
         headers: Dict[str, str] = {}
-        if INTERNAL_TOKEN:
-            headers["X-INTERNAL-TOKEN"] = INTERNAL_TOKEN
+        if INTERNAL_API_KEY:
+            headers["X-Internal-API-Key"] = INTERNAL_API_KEY
 
         params = {"days": days, "size": size}
 

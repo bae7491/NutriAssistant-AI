@@ -7,7 +7,7 @@ import logging
 from app.models.schemas import MonthMenuRequest, GenerateMonthResponse
 from app.services.generator import generate_one_month
 
-from app.core.config import INTERNAL_TOKEN
+from app.core.config import INTERNAL_API_KEY
 from app.models.schemas import (
     GenerateMonthRequest,
     GenerateMonthResponse,
@@ -103,13 +103,13 @@ async def generate_monthly_menu(request: MonthMenuRequest):
 @router.post("/v1/menus/single:generate")
 def generate_single_meal(
     req: Dict[str, Any] = Body(...),
-    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+    x_internal_api_key: str = Header(default="", alias="X-Internal-API-Key"),
 ):
     """
     단일 식단(1끼) AI 생성
     Java 요청 Body 예시: { "date": "2026-03-03", "meal_type": "중식" }
     """
-    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+    if INTERNAL_API_KEY and x_internal_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="unauthorized")
 
     meal_type = req.get("meal_type", "중식")
@@ -125,10 +125,10 @@ def generate_single_meal(
 @router.post("/v1/facility/analyze", response_model=FacilityAnalysisResponse)
 async def analyze_facility(
     request: FacilityAnalysisRequest,
-    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+    x_internal_api_key: str = Header(default="", alias="X-Internal-API-Key"),
 ):
     """시설 현황 텍스트 분석"""
-    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+    if INTERNAL_API_KEY and x_internal_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="unauthorized")
 
     try:
@@ -147,10 +147,10 @@ async def analyze_facility(
 @router.post("/v1/reports/analyze", response_model=ReportAnalysisResponse)
 async def analyze_report(
     request: ReportAnalysisRequest,
-    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+    x_internal_api_key: str = Header(default="", alias="X-Internal-API-Key"),
 ):
     """급식 리포트 분석"""
-    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+    if INTERNAL_API_KEY and x_internal_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="unauthorized")
 
     try:
@@ -181,14 +181,14 @@ async def analyze_report(
 @router.post("/v1/menus/new-menu:generate", response_model=NewMenuGenerationResponse)
 async def generate_new_menu(
     request: NewMenuGenerationRequest,
-    x_internal_token: str = Header(default="", alias="X-Internal-Token"),
+    x_internal_api_key: str = Header(default="", alias="X-Internal-API-Key"),
 ):
     """
     신메뉴 생성
 
     게시판 피드백과 네이버 트렌드 분석을 통해 신메뉴를 추천합니다.
     """
-    if INTERNAL_TOKEN and x_internal_token != INTERNAL_TOKEN:
+    if INTERNAL_API_KEY and x_internal_api_key != INTERNAL_API_KEY:
         raise HTTPException(status_code=401, detail="unauthorized")
 
     try:

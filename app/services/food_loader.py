@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.config import (
-    INTERNAL_TOKEN,
+    INTERNAL_API_KEY,
     SPRING_FOOD_API,
     SPRING_PAGE_SIZE,
     SPRING_TIMEOUT_SECONDS,
@@ -122,8 +122,11 @@ def fetch_foodinfo_all_from_spring() -> pd.DataFrame:
     size = SPRING_PAGE_SIZE
 
     headers: Dict[str, str] = {}
-    if INTERNAL_TOKEN:
-        headers["X-INTERNAL-TOKEN"] = INTERNAL_TOKEN
+    if INTERNAL_API_KEY:
+        headers["X-Internal-API-Key"] = INTERNAL_API_KEY
+        logger.info(f"   🔑 API Key 설정됨 (길이: {len(INTERNAL_API_KEY)})")
+    else:
+        logger.warning("   ⚠️ INTERNAL_API_KEY 환경변수가 설정되지 않았습니다!")
 
     def _unwrap(obj: Any) -> Any:
         while isinstance(obj, dict):

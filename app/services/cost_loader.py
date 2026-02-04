@@ -3,7 +3,7 @@ import requests
 import logging
 from datetime import datetime
 
-from app.core.config import SPRING_FOOD_API, INTERNAL_TOKEN, SPRING_TIMEOUT_SECONDS
+from app.core.config import SPRING_FOOD_API, INTERNAL_API_KEY, SPRING_TIMEOUT_SECONDS
 from app.services.cost_generator import CostGenerator
 
 logger = logging.getLogger(__name__)
@@ -43,11 +43,11 @@ def get_cost_db() -> Dict[str, int]:
     try:
         # 1. Spring API 호출
         base_url = SPRING_FOOD_API.rsplit("/", 2)[0]
-        cost_url = f"{base_url}/api/costs"
+        cost_url = f"{base_url}/api/costs/internal/all"
 
         headers = {}
-        if INTERNAL_TOKEN:
-            headers["X-INTERNAL-TOKEN"] = INTERNAL_TOKEN
+        if INTERNAL_API_KEY:
+            headers["X-Internal-API-Key"] = INTERNAL_API_KEY
 
         logger.info(f"🔄 Spring 단가 DB 확인: {cost_url}")
 
