@@ -16,7 +16,7 @@ if [ -f "$PROJECT_ROOT/.env" ]; then
 fi
 
 # 환경 설정 (인자가 있으면 인자 사용, 없으면 .env의 APP_ENV 사용)
-ENV=${1:-$APP_ENV}
+ENV=${1:-${APP_ENV:-aws}}
 
 echo "========================================"
 echo "FastAPI Server Starting..."
