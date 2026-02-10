@@ -17,7 +17,11 @@ from app.core.config import (
     get_nutrition_standard,
 )
 from app.models.schemas import Options, NewMenuInput
-from app.services.food_loader import get_context, build_context_with_new_menus, FoodContext
+from app.services.food_loader import (
+    get_context,
+    build_context_with_new_menus,
+    FoodContext,
+)
 from app.utils.holidays import get_holidays
 from app.services.cost_loader import get_menu_cost, get_cost_db
 from app.services.ai_analyzer import AIAnalyzer
@@ -329,7 +333,9 @@ async def generate_one_month(
             lunch_dessert_days.update(random.sample(days, k))
             dinner_dessert_days.update(random.sample(days, k))
 
-    logger.info(f"🍰 디저트 배정: 중식 {len(lunch_dessert_days)}일, 석식 {len(dinner_dessert_days)}일")
+    logger.info(
+        f"🍰 디저트 배정: 중식 {len(lunch_dessert_days)}일, 석식 {len(dinner_dessert_days)}일"
+    )
 
     ga_params = dict(
         num_generations=opt.numGenerations,
@@ -435,18 +441,45 @@ async def generate_one_month(
 
         # 오븐 필요 메뉴 키워드
         OVEN_KEYWORDS = [
-            "오븐", "베이크", "그라탕", "라자냐", "피자", "구이",
-            "로스트", "그릴", "오븐구이", "치즈구이", "치즈오븐"
+            "오븐",
+            "베이크",
+            "그라탕",
+            "라자냐",
+            "피자",
+            "구이",
+            "로스트",
+            "그릴",
+            "오븐구이",
+            "치즈구이",
+            "치즈오븐",
         ]
         # 튀김기 필요 메뉴 키워드
         FRYER_KEYWORDS = [
-            "튀김", "돈까스", "탕수육", "치킨", "강정", "커틀릿",
-            "까스", "프라이", "너겟", "텐더", "크로켓", "고로케"
+            "튀김",
+            "돈까스",
+            "탕수육",
+            "치킨",
+            "강정",
+            "커틀릿",
+            "까스",
+            "프라이",
+            "너겟",
+            "텐더",
+            "크로켓",
+            "고로케",
         ]
         # 철판 필요 메뉴 키워드
         GRIDDLE_KEYWORDS = [
-            "전", "부침", "지짐", "팬케이크", "빈대떡", "파전",
-            "호떡", "철판", "볶음밥", "부침개"
+            "전",
+            "부침",
+            "지짐",
+            "팬케이크",
+            "빈대떡",
+            "파전",
+            "호떡",
+            "철판",
+            "볶음밥",
+            "부침개",
         ]
 
         for name in display_names:
@@ -457,11 +490,15 @@ async def generate_one_month(
                 penalty += 2_000_000
 
             # 튀김기 없는데 튀김 메뉴 선택
-            if (not flags.get("has_fryer", True)) and any(k in n for k in FRYER_KEYWORDS):
+            if (not flags.get("has_fryer", True)) and any(
+                k in n for k in FRYER_KEYWORDS
+            ):
                 penalty += 2_000_000
 
             # 철판 없는데 철판 필요 메뉴 선택
-            if (not flags.get("has_griddle", True)) and any(k in n for k in GRIDDLE_KEYWORDS):
+            if (not flags.get("has_griddle", True)) and any(
+                k in n for k in GRIDDLE_KEYWORDS
+            ):
                 penalty += 2_000_000
 
         # 가중치 및 빈도 제한
@@ -635,8 +672,12 @@ async def generate_one_month(
         logger.info(f"   - 평균 단가: {int(avg_cost):,}원")
         logger.info(f"   - 최저 단가: {min_cost:,}원")
         logger.info(f"   - 최고 단가: {max_cost:,}원")
-        logger.info(f"   - 목표 범위 내 식단: {within_target}/{len(rows)}개 ({within_target/len(rows)*100:.1f}%)")
-        logger.info(f"   - 최대 상한 초과 식단: {sum(1 for c in costs if c > constraints.max_price_limit)}개")
+        logger.info(
+            f"   - 목표 범위 내 식단: {within_target}/{len(rows)}개 ({within_target/len(rows)*100:.1f}%)"
+        )
+        logger.info(
+            f"   - 최대 상한 초과 식단: {sum(1 for c in costs if c > constraints.max_price_limit)}개"
+        )
         logger.info("=" * 60)
 
     # ========================================
@@ -760,11 +801,11 @@ def generate_single_candidate(meal_type: str) -> Dict[str, Any]:
     # GA 파라미터 (속도/품질 균형)
     # -----------------------------
     ga_params = dict(
-        num_generations=50,
-        sol_per_pop=30,
-        num_parents_mating=12,
-        keep_parents=6,
-        mutation_percent_genes=25,
+        num_generations=150,
+        sol_per_pop=60,
+        num_parents_mating=40,
+        keep_parents=0,
+        mutation_percent_genes=20,
         stop_criteria=None,
     )
 
